@@ -72,7 +72,7 @@ if externalInstall then
   for fileName, binName in pairs(BIN_NAMES) do
     local target = filesystem.concat(INSTALL_DIR, fileName)
     local launcherPath = "/usr/bin/" .. binName
-    local launcher = '-- Launcher (external drive)\ndofile("' .. target .. '")\n'
+    local launcher = '-- Launcher (external drive)\nlocal fn=loadfile("' .. target .. '")\nif fn then fn(...) end\n'
     local file = io.open(launcherPath, "w")
     if file then
       file:write(launcher)
