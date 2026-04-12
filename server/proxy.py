@@ -260,7 +260,6 @@ def stream_anthropic_response(session):
         "max_tokens": session["max_tokens"],
         "messages": session["messages"],
         "tools": TOOL_DEFINITIONS,
-        "stream": True,
         "thinking": {"type": "adaptive"},
         "output_config": {"effort": "high"},
     }
