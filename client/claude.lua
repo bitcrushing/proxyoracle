@@ -39,8 +39,8 @@ local json = require("json")
 local tools = require("tools")
 local term = require("term")
 
--- Maximum tool-use loop iterations per user message
-local MAX_TOOL_ITERATIONS = 25
+-- No tool iteration limit — proxy holds conversation state.
+-- User can press any key to interrupt the loop.
 
 -- Session state
 local sessionId = nil
@@ -350,7 +350,7 @@ local function sendChat(userInput)
   local iteration = 0
   local lastResult = nil
 
-  while iteration < MAX_TOOL_ITERATIONS do
+  while true do
     iteration = iteration + 1
 
     ui.printResponseLabel()
@@ -448,10 +448,6 @@ local function sendChat(userInput)
     end
 
     print("")
-  end
-
-  if iteration >= MAX_TOOL_ITERATIONS then
-    ui.printError("Tool loop reached limit (" .. MAX_TOOL_ITERATIONS .. " iterations)")
   end
 
   print("")
