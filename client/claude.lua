@@ -133,7 +133,8 @@ local function executeToolWithPermission(block)
 
   ui.printToolDetails(name, input)
 
-  if tools.needsConfirmation(name) then
+  local cfg = config.load()
+  if tools.needsConfirmation(name) and not cfg.auto_allow then
     local desc = getToolDescription(name, input)
     local allowed = ui.confirm("Allow " .. name .. "? " .. desc)
     if not allowed then
@@ -222,6 +223,17 @@ local function processCommand(input)
     print(string.format("  Est. cost:     $%.4f (Sonnet pricing)", cost))
     ui.resetColors()
     print("")
+    return true
+
+  elseif cmd == "yolo" then
+    local cfg = config.load()
+    cfg.auto_allow = not cfg.auto_allow
+    config.save(cfg)
+    if cfg.auto_allow then
+      ui.printColored("Auto-allow ON — Write/Edit/Run will execute without confirmation.", ui.colors.orange)
+    else
+      ui.printSuccess("Auto-allow OFF — Write/Edit/Run will ask for confirmation.")
+    end
     return true
 
   elseif cmd == "last" then

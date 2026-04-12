@@ -13,6 +13,7 @@ local DEFAULT_CONFIG = {
   proxy_token = "",
   model = "claude-sonnet-4-6",
   max_tokens = 16384,
+  auto_allow = false,  -- true = skip confirmation for Write/Edit/Run
   system_prompt = "You are Claude on an OpenComputers Minecraft computer. Lua 5.3, forward slashes, working dir /home. Has internet card. Keep responses concise. Use absolute paths with tools. Note: lua -e is not available, write a temp .lua file instead."
 }
 
@@ -157,6 +158,20 @@ function config.setup()
   if tokens ~= "" then
     local num = tonumber(tokens)
     if num then cfg.max_tokens = num end
+  end
+
+  -- Auto-allow mode
+  print("")
+  local currentMode = cfg.auto_allow and "ON" or "OFF"
+  print("Auto-allow mode: skip confirmation for Write/Edit/Run.")
+  print("Like 'yolo mode' in Claude Code. Currently: " .. currentMode)
+  io.write("Enable auto-allow? (y/n) [" .. currentMode .. "]: ")
+  local autoInput = term.read()
+  autoInput = autoInput and autoInput:gsub("%s+$", ""):lower() or ""
+  if autoInput == "y" or autoInput == "yes" then
+    cfg.auto_allow = true
+  elseif autoInput == "n" or autoInput == "no" then
+    cfg.auto_allow = false
   end
 
   local success, err = config.save(cfg)
