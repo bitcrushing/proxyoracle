@@ -14,7 +14,9 @@ local DEFAULT_CONFIG = {
   model = "claude-sonnet-4-6",
   max_tokens = 16384,
   auto_allow = false,  -- true = skip confirmation for Write/Edit/Run
-  system_prompt = "You are Claude on an OpenComputers Minecraft computer. Lua 5.3, forward slashes, working dir /home. Has internet card. Keep responses concise. Use absolute paths with tools. Note: lua -e is not available, write a temp .lua file instead."
+  auto_interval = 30,  -- seconds between auto mode iterations
+  max_auto_iterations = 50,
+  system_prompt = "You are Claude on an OpenComputers Minecraft computer. Lua 5.3, forward slashes, working dir /home. Has internet card. Keep responses concise. Use absolute paths with tools. Note: lua -e is not available, write a temp .lua file instead. Hardware tools: Component (list/call OC components), Inventory (read inventories), Redstone (get/set signals), ME (AE2 items/craft/status), Robot (move/turn/swing/place/detect/suck/drop), Scan (geolyzer terrain/position). In auto mode, use tags: [NEXT_GOAL: text], [PROGRESS: summary], [WAIT: seconds], [DONE], [PAUSE]."
 }
 
 -- Load configuration from file

@@ -103,14 +103,114 @@ tools.TOOL_DEFINITIONS = {
       },
       required = {"url"}
     }
+  },
+  {
+    name = "Component",
+    description = "Access OC hardware. action='list' shows components. action='call' invokes a method (address, method, args[]).",
+    input_schema = {
+      type = "object",
+      properties = {
+        action = {type = "string"},
+        address = {type = "string"},
+        method = {type = "string"},
+        args = {type = "array", items = {}}
+      },
+      required = {"action"}
+    }
+  },
+  {
+    name = "Inventory",
+    description = "Read inventories via transposer/adapter. side=0-5. Optional slot number.",
+    input_schema = {
+      type = "object",
+      properties = {
+        side = {type = "number"},
+        slot = {type = "number"}
+      },
+      required = {"side"}
+    }
+  },
+  {
+    name = "Redstone",
+    description = "Read/set redstone. action='get' reads input, action='set' sets output (value 0-15).",
+    input_schema = {
+      type = "object",
+      properties = {
+        action = {type = "string"},
+        side = {type = "number"},
+        value = {type = "number"}
+      },
+      required = {"action", "side"}
+    }
+  },
+  {
+    name = "ME",
+    description = "AE2/ME system. action='items' (optional filter), action='craft' (item, count), action='status'.",
+    input_schema = {
+      type = "object",
+      properties = {
+        action = {type = "string"},
+        filter = {type = "string"},
+        item = {type = "string"},
+        count = {type = "number"}
+      },
+      required = {"action"}
+    }
+  },
+  {
+    name = "Robot",
+    description = "Control robot. action: move/turn/swing/place/use/detect/inspect/suck/drop/inventory. direction: forward/up/down. side: left/right.",
+    input_schema = {
+      type = "object",
+      properties = {
+        action = {type = "string"},
+        direction = {type = "string"},
+        side = {type = "string"},
+        slot = {type = "number"}
+      },
+      required = {"action"}
+    }
+  },
+  {
+    name = "Scan",
+    description = "Terrain scanning. action='block' (x,y,z offset), action='area' (w,d,h volume), action='position' (GPS coords).",
+    input_schema = {
+      type = "object",
+      properties = {
+        action = {type = "string"},
+        x = {type = "number"},
+        y = {type = "number"},
+        z = {type = "number"},
+        w = {type = "number"},
+        d = {type = "number"},
+        h = {type = "number"}
+      },
+      required = {"action"}
+    }
   }
 }
 
--- Tools that require user confirmation before execution
-local CONFIRM_TOOLS = {Write = true, Edit = true, Run = true}
+-- Tools that require user confirmation (conditional on action for some)
+local CONFIRM_TOOLS = {Write = true, Edit = true, Run = true, Component = true}
 
-function tools.needsConfirmation(name)
-  return CONFIRM_TOOLS[name] == true
+function tools.needsConfirmation(name, input)
+  if CONFIRM_TOOLS[name] == true then
+    -- Component: only 'call' needs confirmation, 'list' is safe
+    if name == "Component" then
+      return input and input.action == "call"
+    end
+    return true
+  end
+  -- Conditional confirmation by action
+  if name == "Redstone" then
+    return input and input.action == "set"
+  elseif name == "ME" then
+    return input and input.action == "craft"
+  elseif name == "Robot" then
+    local a = input and input.action
+    return a == "move" or a == "swing" or a == "place" or a == "drop" or a == "use"
+  end
+  return false
 end
 
 -------------------------------------------------------------------
@@ -587,6 +687,394 @@ local function executeFetch(input)
 end
 
 -------------------------------------------------------------------
+-- Helper: serialize a value to string (for hardware tool output)
+-------------------------------------------------------------------
+local function serializeResult(val)
+  if val == nil then return "nil" end
+  local t = type(val)
+  if t == "string" or t == "number" or t == "boolean" then
+    return tostring(val)
+  elseif t == "table" then
+    local ok, encoded = pcall(json.encode, val)
+    if ok then return encoded end
+    return tostring(val)
+  end
+  return tostring(val)
+end
+
+-------------------------------------------------------------------
+-- Tool: Component (universal OC hardware access)
+-------------------------------------------------------------------
+local function executeComponent(input)
+  local action = input.action
+  if not action then return "Error: action required (list/call)", true end
+
+  local comp = require("component")
+
+  if action == "list" then
+    local result = {}
+    for addr, ctype in comp.list() do
+      table.insert(result, ctype .. " " .. addr:sub(1, 8))
+    end
+    if #result == 0 then return "No components found", false end
+    return table.concat(result, "\n"), false
+
+  elseif action == "call" then
+    local addr = input.address
+    local method = input.method
+    if not addr then return "Error: address required", true end
+    if not method then return "Error: method required", true end
+
+    local proxy
+    local ok, err = pcall(function()
+      -- Try as type name first, then as address
+      if #addr <= 20 and not addr:match("%-") then
+        local a = comp.list(addr)()
+        if a then proxy = comp.proxy(a) end
+      else
+        proxy = comp.proxy(addr)
+      end
+    end)
+    if not ok or not proxy then
+      return "Error: component not found: " .. addr, true
+    end
+    if not proxy[method] then
+      return "Error: no method: " .. method, true
+    end
+
+    local args = input.args or {}
+    local results = {pcall(proxy[method], table.unpack(args))}
+    if not results[1] then
+      return "Error: " .. tostring(results[2]), true
+    end
+
+    local parts = {}
+    for i = 2, #results do
+      table.insert(parts, serializeResult(results[i]))
+    end
+    return table.concat(parts, "\n"), false
+  end
+
+  return "Error: unknown action: " .. tostring(action), true
+end
+
+-------------------------------------------------------------------
+-- Tool: Inventory (read via transposer/adapter)
+-------------------------------------------------------------------
+local function executeInventory(input)
+  local side = input.side
+  if not side then return "Error: side required (0-5)", true end
+
+  local comp = require("component")
+  local proxy
+  if comp.isAvailable("transposer") then
+    proxy = comp.transposer
+  elseif comp.isAvailable("inventory_controller") then
+    proxy = comp.inventory_controller
+  else
+    return "Error: no transposer or inventory controller", true
+  end
+
+  if input.slot then
+    local ok, stack = pcall(proxy.getStackInSlot, side, input.slot)
+    if not ok then return "Error: " .. tostring(stack), true end
+    if not stack then return "Slot " .. input.slot .. ": empty", false end
+    return "Slot " .. input.slot .. ": " .. serializeResult(stack), false
+  end
+
+  local ok, size = pcall(proxy.getInventorySize, side)
+  if not ok or not size then
+    return "Error: no inventory on side " .. side, true
+  end
+
+  local items = {}
+  local count = 0
+  for i = 1, size do
+    local sok, stack = pcall(proxy.getStackInSlot, side, i)
+    if sok and stack then
+      count = count + 1
+      local label = stack.label or stack.name or "?"
+      local qty = stack.size or 1
+      table.insert(items, "Slot " .. i .. ": " .. label .. " x" .. qty)
+      if count >= 54 then
+        table.insert(items, "(... more slots)")
+        break
+      end
+    end
+  end
+
+  if count == 0 then
+    return "Inventory side " .. side .. ": " .. size .. " slots, all empty", false
+  end
+  return "Inventory (" .. size .. " slots, " .. count .. " items):\n" .. table.concat(items, "\n"), false
+end
+
+-------------------------------------------------------------------
+-- Tool: Redstone (read/set signals)
+-------------------------------------------------------------------
+local function executeRedstone(input)
+  local action = input.action
+  local side = input.side
+  if not action then return "Error: action required (get/set)", true end
+  if not side then return "Error: side required (0-5)", true end
+
+  local comp = require("component")
+  if not comp.isAvailable("redstone") then
+    return "Error: no redstone card/block", true
+  end
+  local rs = comp.redstone
+
+  if action == "get" then
+    local ok, val = pcall(rs.getInput, side)
+    if not ok then return "Error: " .. tostring(val), true end
+    return "Redstone input side " .. side .. ": " .. tostring(val), false
+  elseif action == "set" then
+    local value = input.value
+    if not value then return "Error: value required (0-15)", true end
+    local ok, err = pcall(rs.setOutput, side, value)
+    if not ok then return "Error: " .. tostring(err), true end
+    return "Redstone output side " .. side .. " set to " .. value, false
+  end
+  return "Error: unknown action: " .. tostring(action), true
+end
+
+-------------------------------------------------------------------
+-- Tool: ME (AE2/ME system)
+-------------------------------------------------------------------
+local function executeME(input)
+  local action = input.action
+  if not action then return "Error: action required (items/craft/status)", true end
+
+  local comp = require("component")
+  local me
+  for _, name in ipairs({"me_controller", "me_interface", "me_exportbus"}) do
+    if comp.isAvailable(name) then
+      me = comp[name]
+      break
+    end
+  end
+  if not me then return "Error: no ME bridge component", true end
+
+  if action == "items" then
+    local ok, items = pcall(me.getItemsInNetwork or me.getAvailableItems)
+    if not ok then return "Error: " .. tostring(items), true end
+    if not items then return "No items in ME system", false end
+
+    local filter = input.filter and input.filter:lower()
+    local results = {}
+    local count = 0
+    for _, item in ipairs(items) do
+      local label = item.label or item.name or "?"
+      if not filter or label:lower():find(filter, 1, true) then
+        count = count + 1
+        table.insert(results, label .. " x" .. (item.size or 0))
+        if count >= 50 then
+          table.insert(results, "(... use filter for more)")
+          break
+        end
+      end
+    end
+    if count == 0 then
+      return filter and ("No items matching '" .. filter .. "'") or "ME system empty", false
+    end
+    return table.concat(results, "\n"), false
+
+  elseif action == "craft" then
+    local item = input.item
+    local craftCount = input.count or 1
+    if not item then return "Error: item name required", true end
+
+    local ok, items = pcall(me.getItemsInNetwork or me.getAvailableItems)
+    if not ok then return "Error: " .. tostring(items), true end
+
+    local target
+    for _, c in ipairs(items or {}) do
+      if (c.label or ""):lower() == item:lower() or (c.name or ""):lower() == item:lower() then
+        target = c
+        break
+      end
+    end
+    if not target then return "Error: item not found: " .. item, true end
+
+    local cOk, cRes = pcall(me.requestCrafting or me.craftItem, target, craftCount)
+    if not cOk then return "Error: " .. tostring(cRes), true end
+    return "Crafting requested: " .. (target.label or item) .. " x" .. craftCount, false
+
+  elseif action == "status" then
+    local results = {}
+    local ok, items = pcall(me.getItemsInNetwork or me.getAvailableItems)
+    if ok and items then
+      table.insert(results, "Item types: " .. #items)
+    end
+    local eOk, energy = pcall(me.getAvgPowerUsage or function() return nil end)
+    if eOk and energy then
+      table.insert(results, "Avg power: " .. tostring(energy))
+    end
+    if #results == 0 then return "ME connected (no details available)", false end
+    return table.concat(results, "\n"), false
+  end
+  return "Error: unknown action: " .. tostring(action), true
+end
+
+-------------------------------------------------------------------
+-- Tool: Robot (movement and interaction)
+-------------------------------------------------------------------
+local function executeRobot(input)
+  local action = input.action
+  if not action then return "Error: action required", true end
+
+  local ok, robot = pcall(require, "robot")
+  if not ok then return "Error: robot API not available (not a robot?)", true end
+
+  local dir = input.direction or "forward"
+
+  if action == "move" then
+    local fn = dir == "up" and robot.up or dir == "down" and robot.down or robot.forward
+    local moved, reason = fn()
+    return moved and ("Moved " .. dir) or ("Cannot move " .. dir .. ": " .. tostring(reason)), not moved
+
+  elseif action == "turn" then
+    local side = input.side or "left"
+    if side == "right" then robot.turnRight() else robot.turnLeft() end
+    return "Turned " .. side, false
+
+  elseif action == "swing" then
+    local fn = dir == "up" and robot.swingUp or dir == "down" and robot.swingDown or robot.swing
+    local hit = fn()
+    return hit and ("Swung " .. dir) or ("Nothing to swing at " .. dir), false
+
+  elseif action == "place" then
+    local fn = dir == "up" and robot.placeUp or dir == "down" and robot.placeDown or robot.place
+    local placed, reason = fn()
+    return placed and ("Placed " .. dir) or ("Cannot place " .. dir .. ": " .. tostring(reason)), not placed
+
+  elseif action == "use" then
+    local fn = dir == "up" and robot.useUp or dir == "down" and robot.useDown or robot.use
+    local used = fn()
+    return used and ("Used " .. dir) or ("Use failed " .. dir), false
+
+  elseif action == "detect" then
+    local fn = dir == "up" and robot.detectUp or dir == "down" and robot.detectDown or robot.detect
+    return "Block " .. dir .. ": " .. (fn() and "present" or "empty"), false
+
+  elseif action == "inspect" then
+    local comp = require("component")
+    if not comp.isAvailable("geolyzer") then
+      return "Error: geolyzer needed for inspect", true
+    end
+    local x, y, z = 0, 0, 0
+    if dir == "up" then y = 1 elseif dir == "down" then y = -1 else z = 1 end
+    local iOk, info = pcall(comp.geolyzer.analyze, x, z, y)
+    if not iOk then return "Error: " .. tostring(info), true end
+    return serializeResult(info), false
+
+  elseif action == "suck" then
+    local fn = dir == "up" and robot.suckUp or dir == "down" and robot.suckDown or robot.suck
+    local count = input.slot
+    local sucked = count and fn(count) or fn()
+    return sucked and "Picked up items" or "Nothing to pick up", false
+
+  elseif action == "drop" then
+    local fn = dir == "up" and robot.dropUp or dir == "down" and robot.dropDown or robot.drop
+    local count = input.slot
+    local dropped = count and fn(count) or fn()
+    return dropped and "Dropped items" or "Nothing to drop", not dropped
+
+  elseif action == "inventory" then
+    local size = robot.inventorySize()
+    local items = {}
+    local count = 0
+    for i = 1, size do
+      local stack = robot.count(i)
+      if stack > 0 then
+        count = count + 1
+        local label = "item"
+        local comp = require("component")
+        if comp.isAvailable("inventory_controller") then
+          local iOk, info = pcall(comp.inventory_controller.getStackInInternalSlot, i)
+          if iOk and info then label = info.label or info.name or "item" end
+        end
+        table.insert(items, "Slot " .. i .. ": " .. label .. " x" .. stack)
+      end
+    end
+    if count == 0 then return "Robot inventory: " .. size .. " slots, empty", false end
+    return "Robot (" .. count .. "/" .. size .. " used):\n" .. table.concat(items, "\n"), false
+  end
+
+  return "Error: unknown action: " .. tostring(action), true
+end
+
+-------------------------------------------------------------------
+-- Tool: Scan (geolyzer terrain scanning + navigation)
+-------------------------------------------------------------------
+local function executeScan(input)
+  local action = input.action
+  if not action then return "Error: action required (block/area/position)", true end
+
+  local comp = require("component")
+
+  if action == "block" then
+    if not comp.isAvailable("geolyzer") then
+      return "Error: no geolyzer installed", true
+    end
+    local x = input.x or 0
+    local y = input.y or 0
+    local z = input.z or 0
+    local ok, info = pcall(comp.geolyzer.analyze, x, z, y)
+    if not ok then return "Error: " .. tostring(info), true end
+    return serializeResult(info), false
+
+  elseif action == "area" then
+    if not comp.isAvailable("geolyzer") then
+      return "Error: no geolyzer installed", true
+    end
+    local x = input.x or -4
+    local z = input.z or -4
+    local y = input.y or -1
+    local w = input.w or 8
+    local d = input.d or 8
+    local h = input.h or 1
+    -- Clamp to reasonable size
+    if w * d * h > 512 then
+      return "Error: volume too large (max 512 blocks, got " .. (w*d*h) .. ")", true
+    end
+    local ok, data = pcall(comp.geolyzer.scan, x, z, y, w, d, h)
+    if not ok then return "Error: " .. tostring(data), true end
+    -- data is a flat array of hardness values
+    local result = "Scan " .. w .. "x" .. d .. "x" .. h .. " at (" .. x .. "," .. y .. "," .. z .. "):\n"
+    local count = 0
+    local air = 0
+    local solid = 0
+    for _, v in ipairs(data) do
+      if v == 0 then air = air + 1 else solid = solid + 1 end
+      count = count + 1
+    end
+    result = result .. count .. " blocks: " .. solid .. " solid, " .. air .. " air"
+    -- Include raw data if small enough
+    if count <= 64 then
+      result = result .. "\nRaw hardness: " .. serializeResult(data)
+    end
+    return result, false
+
+  elseif action == "position" then
+    if not comp.isAvailable("navigation") then
+      return "Error: no navigation upgrade installed", true
+    end
+    local ok, x, y, z = pcall(comp.navigation.getPosition)
+    if not ok then return "Error: " .. tostring(x), true end
+    local fOk, facing = pcall(comp.navigation.getFacing)
+    local facingStr = ""
+    if fOk and facing then
+      local dirs = {[2]="north",[3]="south",[4]="west",[5]="east"}
+      facingStr = " facing " .. (dirs[facing] or tostring(facing))
+    end
+    return "Position: " .. tostring(x) .. ", " .. tostring(y) .. ", " .. tostring(z) .. facingStr, false
+  end
+
+  return "Error: unknown action: " .. tostring(action), true
+end
+
+-------------------------------------------------------------------
 -- Tool dispatcher
 -------------------------------------------------------------------
 local EXECUTORS = {
@@ -597,6 +1085,12 @@ local EXECUTORS = {
   Glob = executeGlob,
   Grep = executeGrep,
   Fetch = executeFetch,
+  Component = executeComponent,
+  Inventory = executeInventory,
+  Redstone = executeRedstone,
+  ME = executeME,
+  Robot = executeRobot,
+  Scan = executeScan,
 }
 
 function tools.executeTool(name, input)

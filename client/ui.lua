@@ -281,6 +281,22 @@ function ui.printToolDetails(name, input)
     print("  Grep: " .. tostring(input.pattern or "?"))
   elseif name == "Fetch" then
     print("  Fetch: " .. tostring(input.url or "?"))
+  elseif name == "Component" then
+    if input.action == "list" then
+      print("  Component: list all")
+    else
+      print("  Component: " .. tostring(input.address or "?") .. "." .. tostring(input.method or "?"))
+    end
+  elseif name == "Inventory" then
+    print("  Inventory: side " .. tostring(input.side or "?") .. (input.slot and (" slot " .. input.slot) or ""))
+  elseif name == "Redstone" then
+    print("  Redstone: " .. tostring(input.action or "?") .. " side " .. tostring(input.side or "?"))
+  elseif name == "ME" then
+    print("  ME: " .. tostring(input.action or "?") .. (input.filter and (" '" .. input.filter .. "'") or "") .. (input.item and (" " .. input.item) or ""))
+  elseif name == "Robot" then
+    print("  Robot: " .. tostring(input.action or "?") .. " " .. tostring(input.direction or input.side or ""))
+  elseif name == "Scan" then
+    print("  Scan: " .. tostring(input.action or "?"))
   end
   ui.resetColors()
 end
@@ -310,30 +326,64 @@ function ui.printToolResult(name, result, isError)
   ui.resetColors()
 end
 
+-- Auto mode display helpers
+function ui.printAutoStart(goal)
+  print("")
+  ui.setColors(ui.colors.orange)
+  print("=== AUTO MODE STARTED ===")
+  ui.setColors(ui.colors.cyan)
+  print("Goal: " .. goal)
+  ui.setColors(ui.colors.gray)
+  print("Press any key to interrupt.")
+  ui.resetColors()
+  print("")
+end
+
+function ui.printAutoIteration(iteration, goal)
+  ui.setColors(ui.colors.orange)
+  print("[Auto #" .. iteration .. "] " .. goal)
+  ui.resetColors()
+end
+
+function ui.printAutoWaiting(seconds)
+  ui.setColors(ui.colors.gray)
+  print("[Auto] Waiting " .. seconds .. "s (press any key to stop)...")
+  ui.resetColors()
+end
+
+function ui.printAutoEnd(reason)
+  print("")
+  ui.setColors(ui.colors.orange)
+  print("=== AUTO MODE ENDED: " .. reason .. " ===")
+  ui.resetColors()
+  print("")
+end
+
 -- Print help information
 function ui.printHelp()
   print("")
   ui.printColored("Commands:", ui.colors.cyan)
-  print("  /help     - Show this help message")
-  print("  /clear    - Clear conversation (new session)")
-  print("  /last     - Re-display last response (paginated)")
-  print("  /history  - Show conversation summary from proxy")
-  print("  /cost     - Show token usage and cost estimate")
-  print("  /memory   - Show RAM usage")
-  print("  /yolo     - Toggle auto-allow (skip confirmations)")
-  print("  /setup    - Configure proxy connection")
-  print("  /exit     - Exit Claude Code")
+  print("  /help         - Show this help message")
+  print("  /clear        - Clear conversation (new session)")
+  print("  /auto <goal>  - Start autonomous mode")
+  print("  /last         - Re-display last response (paginated)")
+  print("  /history      - Show conversation summary")
+  print("  /cost         - Show token usage and cost estimate")
+  print("  /memory       - Show RAM usage")
+  print("  /yolo         - Toggle auto-allow (skip confirmations)")
+  print("  /setup        - Configure proxy connection")
+  print("  /exit         - Exit")
   print("")
   ui.printColored("Tools:", ui.colors.cyan)
-  print("  Claude can read/write/edit files and run commands.")
-  print("  Write, Edit, and Run require your confirmation.")
-  print("  Read, Glob, and Grep run automatically.")
+  print("  File: Read, Write, Edit, Run, Glob, Grep, Fetch")
+  print("  Hardware: Component, Inventory, Redstone, ME, Robot, Scan")
+  print("  Some tools require confirmation (use /yolo to skip).")
   print("")
   ui.printColored("Tips:", ui.colors.cyan)
   print("  - Press Ctrl+C to interrupt")
   print("  - Use arrow keys for input history")
   print("  - Responses stream in real-time")
-  print("  - Long re-displayed responses are paginated (q to skip)")
+  print("  - /auto runs Claude autonomously toward a goal")
   print("")
 end
 

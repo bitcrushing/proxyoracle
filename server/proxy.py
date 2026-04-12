@@ -128,6 +128,90 @@ TOOL_DEFINITIONS = [
             "required": ["url"],
         },
     },
+    {
+        "name": "Component",
+        "description": "Access OC hardware. action='list' shows components. action='call' invokes a method (address, method, args[]).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string"},
+                "address": {"type": "string"},
+                "method": {"type": "string"},
+                "args": {"type": "array", "items": {}},
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "Inventory",
+        "description": "Read inventories via transposer/adapter. side=0-5. Optional slot number.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "side": {"type": "number"},
+                "slot": {"type": "number"},
+            },
+            "required": ["side"],
+        },
+    },
+    {
+        "name": "Redstone",
+        "description": "Read/set redstone. action='get' reads input, action='set' sets output (value 0-15).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string"},
+                "side": {"type": "number"},
+                "value": {"type": "number"},
+            },
+            "required": ["action", "side"],
+        },
+    },
+    {
+        "name": "ME",
+        "description": "AE2/ME system. action='items' (optional filter), action='craft' (item, count), action='status'.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string"},
+                "filter": {"type": "string"},
+                "item": {"type": "string"},
+                "count": {"type": "number"},
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "Robot",
+        "description": "Control robot. action: move/turn/swing/place/use/detect/inspect/suck/drop/inventory. direction: forward/up/down. side: left/right.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string"},
+                "direction": {"type": "string"},
+                "side": {"type": "string"},
+                "slot": {"type": "number"},
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "Scan",
+        "description": "Terrain scanning. action='block' (x,y,z offset), action='area' (w,d,h volume), action='position' (GPS coords).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string"},
+                "x": {"type": "number"},
+                "y": {"type": "number"},
+                "z": {"type": "number"},
+                "w": {"type": "number"},
+                "d": {"type": "number"},
+                "h": {"type": "number"},
+            },
+            "required": ["action"],
+        },
+    },
 ]
 
 

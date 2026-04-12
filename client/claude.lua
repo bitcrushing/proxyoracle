@@ -46,6 +46,7 @@ local MAX_TOOL_ITERATIONS = 25
 local sessionId = nil
 local inputHistory = {}
 local lastResponseText = nil  -- Cache of last assistant response for /last
+local runAutonomousLoop       -- forward declaration (defined after sendChat)
 local sessionUsage = {
   total_input = 0,
   total_output = 0,
@@ -122,6 +123,16 @@ local function getToolDescription(name, input)
     return "edit " .. tostring(input.file_path)
   elseif name == "Run" then
     return tostring(input.command)
+  elseif name == "Component" then
+    if input.action == "list" then return "list components" end
+    return "call " .. tostring(input.address or "?") .. "." .. tostring(input.method or "?")
+  elseif name == "Redstone" then
+    return input.action .. " side " .. tostring(input.side) .. (input.value and (" = " .. input.value) or "")
+  elseif name == "ME" then
+    if input.action == "craft" then return "craft " .. tostring(input.item) .. " x" .. tostring(input.count or 1) end
+    return "ME " .. tostring(input.action)
+  elseif name == "Robot" then
+    return tostring(input.action) .. " " .. tostring(input.direction or input.side or "")
   end
   return name
 end
@@ -134,7 +145,7 @@ local function executeToolWithPermission(block)
   ui.printToolDetails(name, input)
 
   local cfg = config.load()
-  if tools.needsConfirmation(name) and not cfg.auto_allow then
+  if tools.needsConfirmation(name, input) and not cfg.auto_allow then
     local desc = getToolDescription(name, input)
     local allowed = ui.confirm("Allow " .. name .. "? " .. desc)
     if not allowed then
@@ -281,6 +292,15 @@ local function processCommand(input)
     print("")
     return true
 
+  elseif cmd == "auto" then
+    if not cmdArg or cmdArg == "" then
+      ui.printError("Usage: /auto <goal>")
+      ui.printInfo("Example: /auto Monitor GT machines and alert if any stall")
+      return true
+    end
+    runAutonomousLoop(cmdArg)
+    return true
+
   else
     ui.printError("Unknown command: /" .. tostring(cmd))
     ui.printInfo("Type /help for available commands.")
@@ -377,6 +397,112 @@ local function sendChat(userInput)
 
   print("")
   return true
+end
+
+-- Autonomous loop: Claude works toward a goal across multiple iterations.
+-- Maintains top-level goal, current sub-goal, and progress log.
+runAutonomousLoop = function(initialGoal)
+  local event = require("event")
+  local cfg = config.load()
+  local autoInterval = cfg.auto_interval or 30
+  local maxIter = cfg.max_auto_iterations or 50
+  local topGoal = initialGoal
+  local currentGoal = initialGoal
+  local progressLog = {}  -- {iteration, summary} entries, max 10
+  local iteration = 0
+
+  ui.printAutoStart(topGoal)
+
+  while iteration < maxIter do
+    iteration = iteration + 1
+
+    -- Build the auto-mode message with context anchors
+    local msg
+    if iteration == 1 then
+      msg = "AUTO MODE\nTop Goal: " .. topGoal ..
+        "\n\nYou are in autonomous mode. Work toward this goal using tools." ..
+        "\nControl the loop with tags in your response:" ..
+        "\n[NEXT_GOAL: text] - set sub-goal for next iteration" ..
+        "\n[PROGRESS: summary] - log what you accomplished" ..
+        "\n[WAIT: seconds] - override wait before next iteration" ..
+        "\n[DONE] - task complete" ..
+        "\n[PAUSE] - return to manual mode"
+    else
+      local logText = ""
+      if #progressLog > 0 then
+        local lines = {}
+        for _, entry in ipairs(progressLog) do
+          table.insert(lines, "- #" .. entry.iter .. ": " .. entry.summary)
+        end
+        logText = "\n\nProgress Log:\n" .. table.concat(lines, "\n")
+      end
+      msg = "AUTO MODE\nTop Goal: " .. topGoal ..
+        "\nCurrent Step (iteration " .. iteration .. "): " .. currentGoal ..
+        logText ..
+        "\n\nWork toward the current step. Use [PROGRESS: ...] to log what you accomplish."
+    end
+
+    ui.printAutoIteration(iteration, currentGoal)
+    local success = sendChat(msg)
+
+    if not success then
+      ui.printAutoEnd("Chat failed")
+      break
+    end
+
+    -- Parse control tags from response
+    local resp = lastResponseText or ""
+
+    -- Extract progress
+    local progress = resp:match("%[PROGRESS:%s*(.-)%]")
+    if progress and progress ~= "" then
+      table.insert(progressLog, {iter = iteration, summary = progress})
+      -- Keep only last 10 entries
+      while #progressLog > 10 do
+        table.remove(progressLog, 1)
+      end
+    end
+
+    if resp:find("%[DONE%]") then
+      ui.printAutoEnd("Task complete")
+      break
+    end
+
+    if resp:find("%[PAUSE%]") then
+      ui.printAutoEnd("Paused")
+      break
+    end
+
+    local nextGoal = resp:match("%[NEXT_GOAL:%s*(.-)%]")
+    if nextGoal and nextGoal ~= "" then
+      currentGoal = nextGoal
+    end
+
+    local waitOverride = resp:match("%[WAIT:%s*(%d+)%]")
+    local waitTime = waitOverride and tonumber(waitOverride) or autoInterval
+
+    -- Interruptible wait
+    ui.printAutoWaiting(waitTime)
+    local interrupted = false
+    local waitEnd = os.time() + waitTime
+
+    while os.time() < waitEnd do
+      local evt = event.pull(0.5, "key_down")
+      if evt then
+        interrupted = true
+        break
+      end
+    end
+
+    if interrupted then
+      ui.printAutoEnd("Interrupted by user")
+      break
+    end
+  end
+
+  if iteration >= maxIter then
+    ui.printAutoEnd("Max iterations (" .. maxIter .. ")")
+  end
 end
 
 -- Main loop
