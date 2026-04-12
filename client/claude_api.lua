@@ -419,6 +419,50 @@ function api.sendToolResult(host, port, token, sessionId, results, onText, onToo
     host, token, {results = results}, onText, onToolUse)
 end
 
+-- Fetch session history from proxy
+function api.getHistory(host, port, token, sessionId)
+  local sock, err = createSocket(host, port)
+  if not sock then return nil, err end
+
+  local writeOk, writeErr = sendHttpRequest(sock, "GET", "/session/" .. sessionId .. "/history", host, token)
+  if not writeOk then
+    sock.close()
+    return nil, writeErr
+  end
+
+  local readLine = createLineReader(sock, 15)
+  local statusLine = readLine()
+  if not statusLine then
+    sock.close()
+    return nil, "No response"
+  end
+
+  -- Read headers
+  while true do
+    local hline = readLine()
+    if not hline or hline == "" then break end
+  end
+
+  -- Read body
+  local bodyParts = {}
+  while true do
+    local l = readLine()
+    if not l then break end
+    if not l:match("^%x+$") then
+      table.insert(bodyParts, l)
+    end
+  end
+  sock.close()
+
+  local body = table.concat(bodyParts, "\n")
+  local ok, data = pcall(json.decode, body)
+  if not ok or not data then
+    return nil, "Invalid response"
+  end
+
+  return data
+end
+
 -- Delete a session
 function api.deleteSession(host, port, token, sessionId)
   local sock, err = createSocket(host, port)

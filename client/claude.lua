@@ -45,6 +45,7 @@ local MAX_TOOL_ITERATIONS = 25
 -- Session state
 local sessionId = nil
 local inputHistory = {}
+local lastResponseText = nil  -- Cache of last assistant response for /last
 local sessionUsage = {
   total_input = 0,
   total_output = 0,
@@ -223,6 +224,37 @@ local function processCommand(input)
     print("")
     return true
 
+  elseif cmd == "last" then
+    if lastResponseText then
+      ui.printResponseLabel()
+      ui.printResponse(lastResponseText)
+      print("")
+    else
+      ui.printInfo("No previous response to display.")
+    end
+    return true
+
+  elseif cmd == "history" then
+    local cfg = config.load()
+    local data, err = api.getHistory(cfg.proxy_host, cfg.proxy_port, cfg.proxy_token, sessionId)
+    if not data or not data.history then
+      ui.printError(err or "Failed to fetch history")
+      return true
+    end
+    if #data.history == 0 then
+      ui.printInfo("No messages in history.")
+    else
+      for i, msg in ipairs(data.history) do
+        local role = msg.role == "user" and "You" or "Claude"
+        local preview = msg.preview or ""
+        if #preview > 50 then preview = preview:sub(1, 50) .. "..." end
+        ui.setColors(msg.role == "user" and ui.colors.green or ui.colors.cyan)
+        print(role .. ": " .. preview)
+        ui.resetColors()
+      end
+    end
+    return true
+
   elseif cmd == "memory" or cmd == "mem" then
     local computer = require("computer")
     local free = computer.freeMemory()
@@ -256,9 +288,11 @@ local function sendChat(userInput)
     ui.printResponseLabel()
 
     local firstChunk = true
+    local responseChunks = {}
 
     local function onText(text)
       firstChunk = false
+      table.insert(responseChunks, text)
       io.write(text)
     end
 
@@ -311,6 +345,11 @@ local function sendChat(userInput)
 
     lastResult = result
     trackUsage(usage)
+
+    -- Cache the last text response for /last command
+    if #responseChunks > 0 then
+      lastResponseText = table.concat(responseChunks)
+    end
 
     -- Check if Claude wants to use more tools
     if result.stop_reason ~= "tool_use" then

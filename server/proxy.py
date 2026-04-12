@@ -506,6 +506,39 @@ def session_status(session_id):
     })
 
 
+@app.route("/session/<session_id>/history", methods=["GET"])
+@require_auth
+def session_history(session_id):
+    session = get_session(session_id)
+    if not session:
+        return jsonify({"error": {"type": "not_found", "message": "Session not found"}}), 404
+
+    # Return condensed history: role + text preview for each message
+    history = []
+    for msg in session["messages"]:
+        role = msg.get("role", "?")
+        content = msg.get("content", "")
+        preview = ""
+
+        if isinstance(content, str):
+            preview = content[:80]
+        elif isinstance(content, list):
+            parts = []
+            for block in content:
+                if isinstance(block, dict):
+                    if block.get("type") == "text":
+                        parts.append(block.get("text", "")[:80])
+                    elif block.get("type") == "tool_use":
+                        parts.append("[" + block.get("name", "tool") + "]")
+                    elif block.get("type") == "tool_result":
+                        parts.append("[result]")
+            preview = " ".join(parts)[:80]
+
+        history.append({"role": role, "preview": preview})
+
+    return jsonify({"history": history, "count": len(history)})
+
+
 @app.route("/session/<session_id>", methods=["DELETE"])
 @require_auth
 def delete_session(session_id):
