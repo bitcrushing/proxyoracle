@@ -424,6 +424,29 @@ local function sendChat(userInput)
       break
     end
 
+    -- Check for user interrupt between tool iterations
+    local event = require("event")
+    local evt = event.pull(0, "key_down")
+    if evt then
+      ui.printInfo("Interrupted by user. Sending cancel to Claude...")
+      -- Send a cancellation as tool results so API gets valid response
+      local cancelResults = {}
+      for _, block in ipairs(result.content) do
+        if block.type == "tool_use" then
+          table.insert(cancelResults, {
+            tool_use_id = block.id,
+            content = "Tool execution cancelled by user.",
+            is_error = true
+          })
+        end
+      end
+      api.sendToolResult(
+        cfg.proxy_host, cfg.proxy_port, cfg.proxy_token,
+        sessionId, cancelResults, function() end, function() end
+      )
+      break
+    end
+
     print("")
   end
 
