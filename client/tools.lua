@@ -381,6 +381,7 @@ local function executeEdit(input)
 
   if not path then return "Error: file_path is required", true end
   if not oldStr then return "Error: old_string is required", true end
+  if oldStr == "" then return "Error: old_string cannot be empty", true end
   if not newStr then return "Error: new_string is required", true end
 
   if not filesystem.exists(path) then
@@ -457,9 +458,15 @@ local function executeRun(input)
 
   local outFile = "/tmp/.claude_cmd_out"
 
-  -- Execute with output redirect
+  -- If command has its own redirect, run as-is (can't capture output)
+  local success
+  if command:find(">") then
+    success = shell.execute(command)
+    return success and "(Command executed, output redirected by command)" or "(Command failed)", not success
+  end
+
   local fullCmd = command .. " > " .. outFile .. " 2>&1"
-  local success = shell.execute(fullCmd)
+  success = shell.execute(fullCmd)
 
   -- Read output
   local output = ""
@@ -503,8 +510,13 @@ local function executeGlob(input)
 
   local basePath = input.path or shell.getWorkingDirectory() or "/"
   if not filesystem.exists(basePath) then
-    return "Error: Directory not found: " .. basePath, true
+    return "Error: Path not found: " .. basePath, true
   end
+  if not filesystem.isDirectory(basePath) then
+    return "Error: Not a directory: " .. basePath, true
+  end
+  -- Normalize: ensure basePath ends with /
+  if basePath:sub(-1) ~= "/" then basePath = basePath .. "/" end
 
   local matches = {}
 
@@ -516,11 +528,9 @@ local function executeGlob(input)
     if basePath ~= "/" then
       if fullPath:sub(1, #basePath) == basePath then
         relPath = fullPath:sub(#basePath + 1)
-        if relPath:sub(1, 1) == "/" then
-          relPath = relPath:sub(2)
-        end
       end
     end
+    if relPath == "" then return end
 
     if not isDir and globMatch(pattern, relPath) then
       table.insert(matches, fullPath)

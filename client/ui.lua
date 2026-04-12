@@ -125,13 +125,14 @@ end
 function ui.printContextWarning(pct, used, limit)
   ui.setColors(ui.colors.orange)
   print("Warning: Context " .. string.format("%.0f%%", pct) .. " full (" .. used .. "/" .. limit .. " tokens)")
-  print("Use /compact to free space or /clear to start fresh.")
+  print("Use /clear to start a fresh session.")
   ui.resetColors()
 end
 
 -- Word wrap text to fit screen width
 function ui.wordWrap(text, maxWidth)
   maxWidth = maxWidth or ui.getSize()
+  if maxWidth < 1 then maxWidth = 1 end
   local lines = {}
 
   for line in text:gmatch("[^\n]*") do

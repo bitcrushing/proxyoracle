@@ -229,9 +229,18 @@ local function processCommand(input)
     print("  Total tokens:  " .. (u.total_input + u.total_output))
     print("  Session time:  " .. minutes .. " min")
 
-    local cost = u.total_input * 3 / 1000000 + u.total_output * 15 / 1000000
+    -- Estimate cost based on model
+    local cfg = config.load()
+    local model = cfg.model or "unknown"
+    local inRate, outRate = 3, 15  -- Sonnet default $/MTok
+    if model:find("opus") then
+      inRate, outRate = 15, 75
+    elseif model:find("haiku") then
+      inRate, outRate = 0.25, 1.25
+    end
+    local cost = u.total_input * inRate / 1000000 + u.total_output * outRate / 1000000
     ui.setColors(ui.colors.yellow)
-    print(string.format("  Est. cost:     $%.4f (Sonnet pricing)", cost))
+    print(string.format("  Est. cost:     $%.4f (%s)", cost, model))
     ui.resetColors()
     print("")
     return true
