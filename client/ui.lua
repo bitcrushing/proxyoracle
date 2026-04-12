@@ -245,14 +245,23 @@ function ui.readInput(history)
   return input
 end
 
--- Confirm prompt
+-- Confirm prompt. Returns:
+--   true          if user approves (y/yes/enter)
+--   false         if user denies (n/no)
+--   string        if user types feedback (sent back as tool error)
 function ui.confirm(message)
   ui.setColors(ui.colors.yellow)
-  io.write(message .. " (y/n): ")
+  io.write(message .. " (y/n/feedback): ")
   ui.resetColors()
 
   local input = ui.readInput()
-  return input and (input:lower() == "y" or input:lower() == "yes")
+  if not input or input == "" or input:lower() == "y" or input:lower() == "yes" then
+    return true
+  elseif input:lower() == "n" or input:lower() == "no" then
+    return false
+  else
+    return input  -- free-text feedback
+  end
 end
 
 -- Print tool use label during streaming (e.g. "[Glob] ")
@@ -370,6 +379,7 @@ function ui.printHelp()
   print("  /last         - Re-display last response (paginated)")
   print("  /history      - Show conversation summary")
   print("  /cost         - Show token usage and cost estimate")
+  print("  /model <name> - Switch model (sonnet/opus/haiku)")
   print("  /memory       - Show RAM usage")
   print("  /yolo         - Toggle auto-allow (skip confirmations)")
   print("  /setup        - Configure proxy connection")

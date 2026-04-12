@@ -147,13 +147,20 @@ local function executeToolWithPermission(block)
   local cfg = config.load()
   if tools.needsConfirmation(name, input) and not cfg.auto_allow then
     local desc = getToolDescription(name, input)
-    local allowed = ui.confirm("Allow " .. name .. "? " .. desc)
-    if not allowed then
+    local response = ui.confirm("Allow " .. name .. "? " .. desc)
+    if response == false then
       return {
         content = "Tool execution denied by user.",
         is_error = true
       }
+    elseif type(response) == "string" then
+      -- User provided feedback instead of approving
+      return {
+        content = "User feedback: " .. response,
+        is_error = true
+      }
     end
+    -- response == true: proceed with execution
   end
 
   ui.printToolExecuting(name)
@@ -206,6 +213,26 @@ local function processCommand(input)
       ui.printSuccess("Conversation cleared (new session).")
     else
       ui.printError("Failed to create new session: " .. tostring(err))
+    end
+    return true
+
+  elseif cmd == "model" then
+    local models = {
+      sonnet = "claude-sonnet-4-6",
+      opus = "claude-opus-4-6",
+      haiku = "claude-haiku-4-5-20251001",
+    }
+    if cmdArg then
+      local newModel = models[cmdArg:lower()] or cmdArg
+      local cfg = config.load()
+      cfg.model = newModel
+      config.save(cfg)
+      ui.printSuccess("Model set to: " .. newModel)
+      ui.printInfo("Takes effect on next /clear or new session.")
+    else
+      local cfg = config.load()
+      ui.printInfo("Current model: " .. cfg.model)
+      ui.printInfo("Usage: /model sonnet | opus | haiku | <full-model-id>")
     end
     return true
 
