@@ -647,7 +647,11 @@ local function executeFetch(input)
   end)
 
   if not ok then
-    return "Error fetching URL: " .. tostring(err), true
+    local errStr = tostring(err or "unknown error")
+    -- OC sometimes gives just a location string; strip it to avoid confusion
+    local msg = errStr:match(":%d+:%s*(.+)$") or errStr
+    if msg == "" then msg = "network error (check server allows this URL)" end
+    return "Error fetching URL: " .. msg, true
   end
 
   local content = table.concat(chunks)

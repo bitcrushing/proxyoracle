@@ -347,6 +347,18 @@ end
 -- Main chat function with agentic tool-use loop
 local function sendChat(userInput)
   local cfg = config.load()
+
+  -- Auto-reconnect if session was reset after an error
+  if not sessionId then
+    local id, connErr = api.createSession(cfg.proxy_host, cfg.proxy_port, cfg.proxy_token, cfg)
+    if not id then
+      ui.printError("Failed to reconnect: " .. tostring(connErr))
+      return false
+    end
+    sessionId = id
+    ui.printSuccess("Reconnected (new session: " .. id .. ")")
+  end
+
   local iteration = 0
   local lastResult = nil
 
@@ -387,7 +399,11 @@ local function sendChat(userInput)
       local toolResults = {}
       for _, block in ipairs(lastResult.content) do
         if block.type == "tool_use" then
-          local toolResult = executeToolWithPermission(block)
+          -- pcall so any crash still produces a tool_result (prevents orphaned tool_use)
+          local execOk, toolResult = pcall(executeToolWithPermission, block)
+          if not execOk then
+            toolResult = {content = "Error: " .. tostring(toolResult), is_error = true}
+          end
           table.insert(toolResults, {
             tool_use_id = block.id,
             content = toolResult.content,
@@ -408,6 +424,13 @@ local function sendChat(userInput)
 
     if not result then
       ui.printError(err)
+      -- Delete corrupt session so next message starts fresh instead of getting 400s
+      if sessionId then
+        local cfg2 = config.load()
+        pcall(api.deleteSession, cfg2.proxy_host, cfg2.proxy_port, cfg2.proxy_token, sessionId)
+        sessionId = nil
+        ui.printInfo("Session reset. Next message will start a new session.")
+      end
       return false
     end
 
