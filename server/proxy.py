@@ -557,11 +557,15 @@ def send_tool_result(session_id):
     # Build tool_result content blocks
     content = []
     for r in results:
+        is_error = r.get("is_error", False)
+        # OC client may send is_error as string "true"/"false" due to json.lua limitations
+        if isinstance(is_error, str):
+            is_error = is_error.lower() == "true"
         content.append({
             "type": "tool_result",
             "tool_use_id": r.get("tool_use_id", ""),
             "content": r.get("content", ""),
-            "is_error": r.get("is_error", False),
+            "is_error": is_error,
         })
 
     session["messages"].append({"role": "user", "content": content})

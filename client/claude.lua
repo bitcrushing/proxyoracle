@@ -397,19 +397,30 @@ local function sendChat(userInput)
     else
       -- Subsequent iterations: send tool results
       local toolResults = {}
-      for _, block in ipairs(lastResult.content) do
+      for _, block in ipairs(lastResult.content or {}) do
         if block.type == "tool_use" then
           -- pcall so any crash still produces a tool_result (prevents orphaned tool_use)
           local execOk, toolResult = pcall(executeToolWithPermission, block)
           if not execOk then
             toolResult = {content = "Error: " .. tostring(toolResult), is_error = true}
           end
+          -- Encode is_error as string to avoid OC json.lua boolean encoding issues
           table.insert(toolResults, {
-            tool_use_id = block.id,
-            content = toolResult.content,
-            is_error = toolResult.is_error
+            tool_use_id = block.id or "",
+            content = tostring(toolResult.content or ""):sub(1, 8192),
+            is_error = toolResult.is_error and "true" or "false"
           })
         end
+      end
+
+      -- Guard: if no tool_use blocks found despite tool_use stop_reason, reset session
+      if #toolResults == 0 then
+        ui.printError("No tool results to send (SSE parse may have dropped blocks). Resetting session.")
+        if sessionId then
+          pcall(api.deleteSession, cfg.proxy_host, cfg.proxy_port, cfg.proxy_token, sessionId)
+          sessionId = nil
+        end
+        return false
       end
 
       result, err, usage = api.sendToolResult(
