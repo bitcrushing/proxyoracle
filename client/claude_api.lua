@@ -463,6 +463,67 @@ function api.getHistory(host, port, token, sessionId)
   return data
 end
 
+-- Fetch a URL via the proxy server (avoids OC HTTPS limitations)
+function api.fetch(host, port, token, url)
+  local sock, err = createSocket(host, port)
+  if not sock then return nil, err end
+
+  local writeOk, writeErr = sendHttpRequest(sock, "POST", "/fetch", host, token, {url = url})
+  if not writeOk then
+    sock.close()
+    return nil, "Failed to send: " .. tostring(writeErr)
+  end
+
+  local readLine = createLineReader(sock, 30)
+  local statusLine = readLine()
+  if not statusLine then
+    sock.close()
+    return nil, "No response from proxy"
+  end
+
+  local _, statusCode = statusLine:match("^(HTTP/%d%.%d)%s+(%d+)")
+  statusCode = tonumber(statusCode)
+
+  -- Read headers
+  while true do
+    local hline = readLine()
+    if not hline or hline == "" then break end
+  end
+
+  -- Read body
+  local bodyParts = {}
+  while true do
+    local l = readLine()
+    if not l then break end
+    if not l:match("^%x+$") then
+      table.insert(bodyParts, l)
+    end
+  end
+  sock.close()
+
+  local body = table.concat(bodyParts, "\n")
+  local ok, data = pcall(json.decode, body)
+  if not ok or not data then
+    return nil, "Invalid response from proxy"
+  end
+
+  if data.error then
+    return nil, tostring(data.error)
+  end
+
+  local content = tostring(data.content or "")
+  if content == "" then
+    return nil, "Empty response from " .. url
+  end
+
+  -- Prepend HTTP status if non-200
+  if data.status_code and data.status_code ~= 200 then
+    content = "HTTP " .. data.status_code .. "\n\n" .. content
+  end
+
+  return content
+end
+
 -- Delete a session
 function api.deleteSession(host, port, token, sessionId)
   local sock, err = createSocket(host, port)

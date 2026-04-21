@@ -617,86 +617,28 @@ end
 -------------------------------------------------------------------
 -- Tool: Fetch
 -------------------------------------------------------------------
-local MAX_FETCH_BYTES = 4096  -- 4KB cap for fetched content
-
 local function executeFetch(input)
   local url = input.url
   if not url then return "Error: url is required", true end
 
-  local component = require("component")
-  if not component.isAvailable("internet") then
-    return "Error: No internet card", true
+  -- Delegate fetch to the proxy server so HTTPS works reliably.
+  -- OC's internet card has limited TLS support; the proxy runs on a
+  -- real server with full Python requests / system SSL.
+  local ok_cfg, cfg_mod = pcall(require, "config")
+  if not ok_cfg then return "Error: config module unavailable", true end
+  local cfg = cfg_mod.load()
+
+  if not cfg.proxy_host or cfg.proxy_host == "" then
+    return "Error: proxy not configured", true
   end
 
-  local internet = require("internet")
+  local ok_api, api_mod = pcall(require, "claude_api")
+  if not ok_api then return "Error: claude_api module unavailable", true end
 
-  -- Fetch content
-  local chunks = {}
-  local totalBytes = 0
-  local truncated = false
-
-  local ok, err = pcall(function()
-    for chunk in internet.request(url) do
-      totalBytes = totalBytes + #chunk
-      if totalBytes <= MAX_FETCH_BYTES then
-        table.insert(chunks, chunk)
-      else
-        truncated = true
-      end
-    end
-  end)
-
-  if not ok then
-    local errStr = tostring(err or "unknown error")
-    -- OC sometimes gives just a location string; strip it to avoid confusion
-    local msg = errStr:match(":%d+:%s*(.+)$") or errStr
-    if msg == "" then msg = "network error (check server allows this URL)" end
-    return "Error fetching URL: " .. msg, true
+  local content, err = api_mod.fetch(cfg.proxy_host, cfg.proxy_port, cfg.proxy_token, url)
+  if not content then
+    return "Error fetching URL: " .. tostring(err), true
   end
-
-  local content = table.concat(chunks)
-  chunks = nil
-
-  if #content == 0 then
-    return "Error: Empty response from " .. url, true
-  end
-
-  -- Strip HTML tags if content looks like HTML
-  if content:match("^%s*<!") or content:match("^%s*<html") or content:match("<head") then
-    -- Remove script and style blocks entirely
-    content = content:gsub("<script[^>]*>.-</script>", "")
-    content = content:gsub("<style[^>]*>.-</style>", "")
-    -- Replace br/p/div/li/tr with newlines
-    content = content:gsub("<br[^>]*>", "\n")
-    content = content:gsub("</p>", "\n")
-    content = content:gsub("</div>", "\n")
-    content = content:gsub("</li>", "\n")
-    content = content:gsub("</tr>", "\n")
-    -- Strip remaining tags
-    content = content:gsub("<[^>]+>", "")
-    -- Decode common HTML entities
-    content = content:gsub("&amp;", "&")
-    content = content:gsub("&lt;", "<")
-    content = content:gsub("&gt;", ">")
-    content = content:gsub("&quot;", '"')
-    content = content:gsub("&#39;", "'")
-    content = content:gsub("&nbsp;", " ")
-    -- Collapse whitespace
-    content = content:gsub("[ \t]+", " ")
-    content = content:gsub("\n%s*\n%s*\n", "\n\n")
-    content = content:match("^%s*(.-)%s*$") or content
-  end
-
-  -- Final truncation after stripping
-  if #content > MAX_FETCH_BYTES then
-    content = content:sub(1, MAX_FETCH_BYTES)
-    truncated = true
-  end
-
-  if truncated then
-    content = content .. "\n\n(Truncated, was " .. totalBytes .. " bytes)"
-  end
-
   return content, false
 end
 

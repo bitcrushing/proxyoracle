@@ -12,14 +12,18 @@ First run auto-generates proxy_config.json with a random auth token.
 Configure your Anthropic API key in proxy_config.json before use.
 """
 
+import html
 import json
 import os
+import re
 import secrets
 import time
 import uuid
 from functools import wraps
+from html.parser import HTMLParser
 
 import anthropic
+import requests as http_requests
 from flask import Flask, Response, jsonify, request
 
 app = Flask(__name__)
@@ -633,6 +637,138 @@ def delete_session(session_id):
     if session_id in sessions:
         del sessions[session_id]
     return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# Server-side fetch endpoint
+# ---------------------------------------------------------------------------
+
+class _TextExtractor(HTMLParser):
+    """Minimal HTML-to-text: strips tags, decodes entities, collapses whitespace."""
+    def __init__(self):
+        super().__init__()
+        self._parts = []
+        self._skip = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style", "noscript", "nav", "footer", "head"):
+            self._skip = True
+        if tag in ("br", "p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6"):
+            self._parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style", "noscript", "nav", "footer", "head"):
+            self._skip = False
+        if tag in ("p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6"):
+            self._parts.append("\n")
+
+    def handle_data(self, data):
+        if not self._skip:
+            self._parts.append(data)
+
+    def get_text(self):
+        text = "".join(self._parts)
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
+
+FETCH_MAX_BYTES = 8192        # cap returned to OC client
+FETCH_DOWNLOAD_MAX = 2 * 1024 * 1024  # 2MB download cap before stripping
+FETCH_TIMEOUT = 20            # seconds
+
+
+@app.route("/fetch", methods=["POST"])
+@require_auth
+def proxy_fetch():
+    """Fetch a URL server-side and return stripped text to the OC client."""
+    if not check_rate_limit():
+        return jsonify({"error": "Too many requests"}), 429
+
+    data = request.get_json(silent=True) or {}
+    url = data.get("url", "").strip()
+    if not url:
+        return jsonify({"error": "Missing url"}), 400
+
+    # Require http/https scheme
+    if not url.lower().startswith(("http://", "https://")):
+        return jsonify({"error": "Only http/https URLs are supported"}), 400
+
+    try:
+        resp = http_requests.get(
+            url,
+            timeout=FETCH_TIMEOUT,
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; ProxyOracle/1.0)",
+                "Accept": "text/html,text/plain,*/*",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+            stream=True,
+            allow_redirects=True,
+        )
+
+        # Read up to FETCH_DOWNLOAD_MAX bytes
+        chunks = []
+        total = 0
+        truncated = False
+        for chunk in resp.iter_content(chunk_size=4096):
+            if chunk:
+                total += len(chunk)
+                if total <= FETCH_DOWNLOAD_MAX:
+                    chunks.append(chunk)
+                else:
+                    truncated = True
+                    break
+        resp.close()
+
+        raw = b"".join(chunks)
+        content_type = resp.headers.get("content-type", "")
+        status_code = resp.status_code
+
+        # Decode bytes to text
+        encoding = resp.encoding or "utf-8"
+        try:
+            text = raw.decode(encoding, errors="replace")
+        except (LookupError, UnicodeDecodeError):
+            text = raw.decode("utf-8", errors="replace")
+
+        # Strip HTML if applicable
+        if "html" in content_type.lower():
+            extractor = _TextExtractor()
+            try:
+                extractor.feed(text)
+                text = extractor.get_text()
+            except Exception:
+                # Fall back to simple regex strip
+                text = re.sub(r"<[^>]+>", " ", text)
+                text = html.unescape(text)
+                text = re.sub(r"\s+", " ", text).strip()
+        else:
+            text = html.unescape(text)
+
+        # Truncate to FETCH_MAX_BYTES for OC client
+        if len(text) > FETCH_MAX_BYTES:
+            text = text[:FETCH_MAX_BYTES]
+            truncated = True
+
+        if truncated:
+            text += f"\n\n(Truncated — fetched {total} bytes total)"
+
+        return jsonify({
+            "content": text,
+            "status_code": status_code,
+            "url": resp.url,
+            "truncated": truncated,
+        })
+
+    except http_requests.exceptions.Timeout:
+        return jsonify({"error": f"Request timed out after {FETCH_TIMEOUT}s"}), 200
+    except http_requests.exceptions.TooManyRedirects:
+        return jsonify({"error": "Too many redirects"}), 200
+    except http_requests.exceptions.ConnectionError as e:
+        return jsonify({"error": f"Connection error: {e}"}), 200
+    except Exception as e:
+        return jsonify({"error": f"Fetch failed: {e}"}), 200
 
 
 @app.route("/health", methods=["GET"])
