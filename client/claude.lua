@@ -204,6 +204,7 @@ local function processCommand(input)
       api.deleteSession(cfg.proxy_host, cfg.proxy_port, cfg.proxy_token, sessionId)
     end
     local newId, err = api.createSession(cfg.proxy_host, cfg.proxy_port, cfg.proxy_token, cfg)
+    print("")
     if newId then
       sessionId = newId
       sessionUsage = {
@@ -214,6 +215,7 @@ local function processCommand(input)
     else
       ui.printError("Failed to create new session: " .. tostring(err))
     end
+    print("")
     return true
 
   elseif cmd == "model" then
@@ -222,6 +224,7 @@ local function processCommand(input)
       opus = "claude-opus-4-6",
       haiku = "claude-haiku-4-5-20251001",
     }
+    print("")
     if cmdArg then
       local newModel = models[cmdArg:lower()] or cmdArg
       local cfg = config.load()
@@ -234,6 +237,7 @@ local function processCommand(input)
       ui.printInfo("Current model: " .. cfg.model)
       ui.printInfo("Usage: /model sonnet | opus | haiku | <full-model-id>")
     end
+    print("")
     return true
 
   elseif cmd == "setup" then
@@ -276,11 +280,13 @@ local function processCommand(input)
     local cfg = config.load()
     cfg.auto_allow = not cfg.auto_allow
     config.save(cfg)
+    print("")
     if cfg.auto_allow then
       ui.printColored("Auto-allow ON — Write/Edit/Run will execute without confirmation.", ui.colors.orange)
     else
       ui.printSuccess("Auto-allow OFF — Write/Edit/Run will ask for confirmation.")
     end
+    print("")
     return true
 
   elseif cmd == "last" then
@@ -289,7 +295,54 @@ local function processCommand(input)
       ui.printResponse(lastResponseText)
       print("")
     else
+      print("")
       ui.printInfo("No previous response to display.")
+      print("")
+    end
+    return true
+
+  elseif cmd == "resume" then
+    local cfg = config.load()
+    local data, err = api.listSessions(cfg.proxy_host, cfg.proxy_port, cfg.proxy_token)
+    if not data or not data.sessions then
+      print("")
+      ui.printError(err or "Failed to fetch sessions")
+      print("")
+      return true
+    end
+    if #data.sessions == 0 then
+      print("")
+      ui.printInfo("No saved sessions. Sessions are saved after each response.")
+      print("")
+      return true
+    end
+    print("")
+    ui.printColored("Saved sessions:", ui.colors.cyan)
+    for i, s in ipairs(data.sessions) do
+      local preview = tostring(s.last_message or "")
+      if #preview > 30 then preview = preview:sub(1, 30) .. "..." end
+      ui.setColors(ui.colors.gray)
+      print(string.format("  [%d] %s  %s msgs  %s  \"%s\"",
+        i, tostring(s.id), tostring(s.message_count or 0),
+        tostring(s.last_updated or ""), preview))
+      ui.resetColors()
+    end
+    print("")
+    ui.setColors(ui.colors.yellow)
+    io.write("Resume [number] or Enter to cancel: ")
+    ui.resetColors()
+    local choice = io.read()
+    local idx = tonumber(choice)
+    if idx and data.sessions[idx] then
+      sessionId = data.sessions[idx].id
+      sessionUsage = {total_input = 0, total_output = 0, request_count = 0, session_start = os.time()}
+      print("")
+      ui.printSuccess("Resumed session: " .. sessionId)
+      print("")
+    else
+      print("")
+      ui.printInfo("Cancelled.")
+      print("")
     end
     return true
 
@@ -297,9 +350,12 @@ local function processCommand(input)
     local cfg = config.load()
     local data, err = api.getHistory(cfg.proxy_host, cfg.proxy_port, cfg.proxy_token, sessionId)
     if not data or not data.history then
+      print("")
       ui.printError(err or "Failed to fetch history")
+      print("")
       return true
     end
+    print("")
     if #data.history == 0 then
       ui.printInfo("No messages in history.")
     else
@@ -312,6 +368,7 @@ local function processCommand(input)
         ui.resetColors()
       end
     end
+    print("")
     return true
 
   elseif cmd == "memory" or cmd == "mem" then
@@ -330,16 +387,20 @@ local function processCommand(input)
 
   elseif cmd == "auto" then
     if not cmdArg or cmdArg == "" then
+      print("")
       ui.printError("Usage: /auto <goal>")
       ui.printInfo("Example: /auto Monitor GT machines and alert if any stall")
+      print("")
       return true
     end
     runAutonomousLoop(cmdArg)
     return true
 
   else
+    print("")
     ui.printError("Unknown command: /" .. tostring(cmd))
     ui.printInfo("Type /help for available commands.")
+    print("")
     return true
   end
 end
@@ -641,6 +702,7 @@ local function mainLoop(initialMessage)
     elseif input:sub(1, 1) == "/" then
       local continue, action = processCommand(input)
       if action == "exit" then
+        print("")
         ui.printInfo("Goodbye!")
         break
       end

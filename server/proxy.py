@@ -33,6 +33,7 @@ app = Flask(__name__)
 # ---------------------------------------------------------------------------
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "proxy_config.json")
+SESSIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sessions")
 
 DEFAULT_CONFIG = {
     "api_key": "",
@@ -247,7 +248,40 @@ def save_config(cfg):
         json.dump(cfg, f, indent=2)
 
 
+def save_session(session):
+    """Persist a session to disk so it survives proxy restarts."""
+    try:
+        os.makedirs(SESSIONS_DIR, exist_ok=True)
+        session["last_updated"] = time.time()
+        path = os.path.join(SESSIONS_DIR, session["id"] + ".json")
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(session, f, separators=(",", ":"))
+        os.replace(tmp, path)
+    except Exception:
+        pass  # Non-critical — session still works in memory
+
+
+def load_sessions():
+    """Load persisted sessions from disk on startup."""
+    if not os.path.exists(SESSIONS_DIR):
+        return
+    for fname in os.listdir(SESSIONS_DIR):
+        if not fname.endswith(".json"):
+            continue
+        path = os.path.join(SESSIONS_DIR, fname)
+        try:
+            with open(path) as f:
+                session = json.load(f)
+            required = ("id", "model", "max_tokens", "messages", "created_at")
+            if all(k in session for k in required):
+                sessions[session["id"]] = session
+        except Exception:
+            pass  # Skip corrupt files
+
+
 config = load_config()
+load_sessions()
 
 # ---------------------------------------------------------------------------
 # Session storage
@@ -495,6 +529,8 @@ def stream_anthropic_response(session):
     session["total_input_tokens"] += usage.get("input_tokens", 0)
     session["total_output_tokens"] += usage.get("output_tokens", 0)
 
+    save_session(session)
+
 
 # ---------------------------------------------------------------------------
 # API endpoints
@@ -636,6 +672,11 @@ def session_history(session_id):
 def delete_session(session_id):
     if session_id in sessions:
         del sessions[session_id]
+    path = os.path.join(SESSIONS_DIR, session_id + ".json")
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
     return jsonify({"ok": True})
 
 
@@ -767,6 +808,45 @@ def proxy_fetch():
         return jsonify({"error": f"Connection error: {e}"}), 200
     except Exception as e:
         return jsonify({"error": f"Fetch failed: {e}"}), 200
+
+
+@app.route("/sessions", methods=["GET"])
+@require_auth
+def list_sessions_endpoint():
+    result = []
+    for session in sessions.values():
+        # Find the most recent user text message for the preview
+        last_msg = ""
+        for msg in reversed(session["messages"]):
+            content = msg.get("content", "")
+            if isinstance(content, str) and msg.get("role") == "user":
+                last_msg = content[:60]
+                break
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        text = block.get("text", "").strip()
+                        if text:
+                            last_msg = text[:60]
+                            break
+                if last_msg:
+                    break
+
+        ts = session.get("last_updated", session["created_at"])
+        result.append({
+            "id": session["id"],
+            "model": session["model"],
+            "message_count": len(session["messages"]),
+            "ts": ts,
+            "last_updated": time.strftime("%b %d %H:%M", time.localtime(ts)),
+            "last_message": last_msg,
+        })
+
+    result.sort(key=lambda s: s["ts"], reverse=True)
+    for s in result:
+        del s["ts"]
+
+    return jsonify({"sessions": result})
 
 
 @app.route("/health", methods=["GET"])

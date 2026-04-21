@@ -494,6 +494,35 @@ function api.fetch(host, port, token, url)
   return content
 end
 
+-- List all saved sessions on the proxy
+function api.listSessions(host, port, token)
+  local sock, err = createSocket(host, port)
+  if not sock then return nil, err end
+
+  local writeOk, writeErr = sendHttpRequest(sock, "GET", "/sessions", host, token)
+  if not writeOk then
+    sock.close()
+    return nil, "Failed to send: " .. tostring(writeErr)
+  end
+
+  local readLine = createLineReader(sock, 15)
+  local statusLine = readLine()
+  if not statusLine then
+    sock.close()
+    return nil, "No response"
+  end
+
+  local body = readHttpBody(readLine)
+  sock.close()
+
+  local ok, data = pcall(json.decode, body)
+  if not ok or not data then
+    return nil, "Invalid response"
+  end
+
+  return data
+end
+
 -- Delete a session
 function api.deleteSession(host, port, token, sessionId)
   local sock, err = createSocket(host, port)
