@@ -343,6 +343,24 @@ local function sendAndStream(sock, method, path, host, token, body, onText, onTo
   return result, nil, usage
 end
 
+-- Read and discard HTTP headers, then collect the body as a string.
+-- Handles chunked transfer encoding (skips hex size lines).
+local function readHttpBody(readLine)
+  while true do
+    local hline = readLine()
+    if not hline or hline == "" then break end
+  end
+  local parts = {}
+  while true do
+    local l = readLine()
+    if not l then break end
+    if not l:match("^%x+$") then
+      table.insert(parts, l)
+    end
+  end
+  return table.concat(parts, "\n")
+end
+
 -- Create a new session on the proxy
 function api.createSession(host, port, token, cfg)
   local sock, err = createSocket(host, port)
@@ -353,7 +371,6 @@ function api.createSession(host, port, token, cfg)
     max_tokens = cfg.max_tokens,
     system_prompt = cfg.system_prompt,
   })
-
   if not writeOk then
     sock.close()
     return nil, "Failed to send: " .. tostring(writeErr)
@@ -369,26 +386,10 @@ function api.createSession(host, port, token, cfg)
   local _, statusCode = statusLine:match("^(HTTP/%d%.%d)%s+(%d+)")
   statusCode = tonumber(statusCode)
 
-  -- Read headers
-  while true do
-    local hline = readLine()
-    if not hline or hline == "" then break end
-  end
-
-  -- Read body
-  local bodyParts = {}
-  while true do
-    local l = readLine()
-    if not l then break end
-    if not l:match("^%x+$") then
-      table.insert(bodyParts, l)
-    end
-  end
+  local body = readHttpBody(readLine)
   sock.close()
 
-  local body = table.concat(bodyParts, "\n")
   local ok, data = pcall(json.decode, body)
-
   if not ok or not data then
     return nil, "Invalid proxy response"
   end
@@ -437,24 +438,9 @@ function api.getHistory(host, port, token, sessionId)
     return nil, "No response"
   end
 
-  -- Read headers
-  while true do
-    local hline = readLine()
-    if not hline or hline == "" then break end
-  end
-
-  -- Read body
-  local bodyParts = {}
-  while true do
-    local l = readLine()
-    if not l then break end
-    if not l:match("^%x+$") then
-      table.insert(bodyParts, l)
-    end
-  end
+  local body = readHttpBody(readLine)
   sock.close()
 
-  local body = table.concat(bodyParts, "\n")
   local ok, data = pcall(json.decode, body)
   if not ok or not data then
     return nil, "Invalid response"
@@ -484,24 +470,9 @@ function api.fetch(host, port, token, url)
   local _, statusCode = statusLine:match("^(HTTP/%d%.%d)%s+(%d+)")
   statusCode = tonumber(statusCode)
 
-  -- Read headers
-  while true do
-    local hline = readLine()
-    if not hline or hline == "" then break end
-  end
-
-  -- Read body
-  local bodyParts = {}
-  while true do
-    local l = readLine()
-    if not l then break end
-    if not l:match("^%x+$") then
-      table.insert(bodyParts, l)
-    end
-  end
+  local body = readHttpBody(readLine)
   sock.close()
 
-  local body = table.concat(bodyParts, "\n")
   local ok, data = pcall(json.decode, body)
   if not ok or not data then
     return nil, "Invalid response from proxy"
@@ -516,7 +487,6 @@ function api.fetch(host, port, token, url)
     return nil, "Empty response from " .. url
   end
 
-  -- Prepend HTTP status if non-200
   if data.status_code and data.status_code ~= 200 then
     content = "HTTP " .. data.status_code .. "\n\n" .. content
   end

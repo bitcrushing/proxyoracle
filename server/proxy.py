@@ -653,13 +653,13 @@ class _TextExtractor(HTMLParser):
     def handle_starttag(self, tag, attrs):
         if tag in ("script", "style", "noscript", "nav", "footer", "head"):
             self._skip = True
-        if tag in ("br", "p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6"):
+        elif not self._skip and tag in ("br", "p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6"):
             self._parts.append("\n")
 
     def handle_endtag(self, tag):
         if tag in ("script", "style", "noscript", "nav", "footer", "head"):
             self._skip = False
-        if tag in ("p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6"):
+        elif not self._skip and tag in ("p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6"):
             self._parts.append("\n")
 
     def handle_data(self, data):
@@ -695,7 +695,7 @@ def proxy_fetch():
         return jsonify({"error": "Only http/https URLs are supported"}), 400
 
     try:
-        resp = http_requests.get(
+        with http_requests.get(
             url,
             timeout=FETCH_TIMEOUT,
             headers={
@@ -705,28 +705,26 @@ def proxy_fetch():
             },
             stream=True,
             allow_redirects=True,
-        )
+        ) as resp:
+            # Read up to FETCH_DOWNLOAD_MAX bytes
+            chunks = []
+            total = 0
+            truncated = False
+            for chunk in resp.iter_content(chunk_size=4096):
+                if chunk:
+                    total += len(chunk)
+                    if total <= FETCH_DOWNLOAD_MAX:
+                        chunks.append(chunk)
+                    else:
+                        truncated = True
+                        break
 
-        # Read up to FETCH_DOWNLOAD_MAX bytes
-        chunks = []
-        total = 0
-        truncated = False
-        for chunk in resp.iter_content(chunk_size=4096):
-            if chunk:
-                total += len(chunk)
-                if total <= FETCH_DOWNLOAD_MAX:
-                    chunks.append(chunk)
-                else:
-                    truncated = True
-                    break
-        resp.close()
+            raw = b"".join(chunks)
+            content_type = resp.headers.get("content-type", "")
+            status_code = resp.status_code
+            encoding = resp.encoding or "utf-8"
 
-        raw = b"".join(chunks)
-        content_type = resp.headers.get("content-type", "")
-        status_code = resp.status_code
-
-        # Decode bytes to text
-        encoding = resp.encoding or "utf-8"
+        # Decode bytes to text (outside `with` — connection already closed)
         try:
             text = raw.decode(encoding, errors="replace")
         except (LookupError, UnicodeDecodeError):

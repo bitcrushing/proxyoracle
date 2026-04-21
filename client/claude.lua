@@ -344,6 +344,14 @@ local function processCommand(input)
   end
 end
 
+-- Delete the current session and clear sessionId so the next sendChat reconnects.
+local function resetSession(cfg)
+  if sessionId then
+    pcall(api.deleteSession, cfg.proxy_host, cfg.proxy_port, cfg.proxy_token, sessionId)
+    sessionId = nil
+  end
+end
+
 -- Main chat function with agentic tool-use loop
 local function sendChat(userInput)
   local cfg = config.load()
@@ -413,13 +421,9 @@ local function sendChat(userInput)
         end
       end
 
-      -- Guard: if no tool_use blocks found despite tool_use stop_reason, reset session
       if #toolResults == 0 then
         ui.printError("No tool results to send (SSE parse may have dropped blocks). Resetting session.")
-        if sessionId then
-          pcall(api.deleteSession, cfg.proxy_host, cfg.proxy_port, cfg.proxy_token, sessionId)
-          sessionId = nil
-        end
+        resetSession(cfg)
         return false
       end
 
@@ -435,13 +439,8 @@ local function sendChat(userInput)
 
     if not result then
       ui.printError(err)
-      -- Delete corrupt session so next message starts fresh instead of getting 400s
-      if sessionId then
-        local cfg2 = config.load()
-        pcall(api.deleteSession, cfg2.proxy_host, cfg2.proxy_port, cfg2.proxy_token, sessionId)
-        sessionId = nil
-        ui.printInfo("Session reset. Next message will start a new session.")
-      end
+      resetSession(cfg)
+      ui.printInfo("Session reset. Next message will start a new session.")
       return false
     end
 

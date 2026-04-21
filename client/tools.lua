@@ -621,21 +621,14 @@ local function executeFetch(input)
   local url = input.url
   if not url then return "Error: url is required", true end
 
-  -- Delegate fetch to the proxy server so HTTPS works reliably.
-  -- OC's internet card has limited TLS support; the proxy runs on a
-  -- real server with full Python requests / system SSL.
-  local ok_cfg, cfg_mod = pcall(require, "config")
-  if not ok_cfg then return "Error: config module unavailable", true end
-  local cfg = cfg_mod.load()
-
+  -- Delegate to the proxy server; its Python requests stack handles HTTPS
+  -- correctly where OC's internet card has limited TLS support.
+  local cfg = require("config").load()
   if not cfg.proxy_host or cfg.proxy_host == "" then
     return "Error: proxy not configured", true
   end
 
-  local ok_api, api_mod = pcall(require, "claude_api")
-  if not ok_api then return "Error: claude_api module unavailable", true end
-
-  local content, err = api_mod.fetch(cfg.proxy_host, cfg.proxy_port, cfg.proxy_token, url)
+  local content, err = require("claude_api").fetch(cfg.proxy_host, cfg.proxy_port, cfg.proxy_token, url)
   if not content then
     return "Error fetching URL: " .. tostring(err), true
   end
