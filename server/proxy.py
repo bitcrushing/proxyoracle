@@ -456,19 +456,24 @@ def stream_opencode_response(session):
                 if block["type"] == "text":
                     text_content += block.get("text", "")
                 elif block["type"] == "tool_use":
+                    tool_input = block.get("input", {})
+                    if not isinstance(tool_input, dict):
+                        tool_input = {}
                     tool_calls.append({
                         "id": block.get("id", ""),
                         "type": "function",
                         "function": {
                             "name": block.get("name", ""),
-                            "arguments": json.dumps(block.get("input", {}))
+                            "arguments": json.dumps(tool_input)
                         }
                     })
             msg_dict = {"role": "assistant"}
-            if text_content:
-                msg_dict["content"] = text_content
             if tool_calls:
                 msg_dict["tool_calls"] = tool_calls
+                # OpenAI requires content to be null (not "") when tool_calls are present
+                msg_dict["content"] = text_content if text_content else None
+            else:
+                msg_dict["content"] = text_content
             openai_messages.append(msg_dict)
 
     api_kwargs = {
