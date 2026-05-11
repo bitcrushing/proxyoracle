@@ -302,6 +302,16 @@ def save_config(cfg):
         json.dump(cfg, f, indent=2)
 
 
+def _strip_surrogates(s):
+    """Remove Unicode surrogate characters that break UTF-8 encoding in JSON/Flask."""
+    if not isinstance(s, str):
+        return s
+    try:
+        return s.encode("utf-8", "surrogatepass").decode("utf-8", "ignore")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return "".join(c for c in s if not (0xD800 <= ord(c) <= 0xDFFF))
+
+
 def save_session(session):
     """Persist a session to disk so it survives proxy restarts."""
     try:
@@ -446,7 +456,7 @@ def stream_opencode_response(session):
                         openai_messages.append({
                             "role": "tool",
                             "tool_call_id": block.get("tool_use_id", ""),
-                            "content": str(block.get("content", ""))
+                            "content": _strip_surrogates(str(block.get("content", "")))
                         })
         elif msg["role"] == "assistant":
             # Translate content array to string + tool_calls
@@ -525,8 +535,9 @@ def stream_opencode_response(session):
                             content_blocks[idx] = {"type": "text", "text": ""}
                             yield f'event: content_block_start\ndata: {{"type":"content_block_start","index":{idx},"content_block":{{"type":"text","text":""}}}}\n\n'
                         
-                        content_blocks[idx]["text"] += delta.content
-                        safe_content = json.dumps(delta.content)
+                        clean_text = _strip_surrogates(delta.content)
+                        content_blocks[idx]["text"] += clean_text
+                        safe_content = json.dumps(clean_text)
                         yield f'event: content_block_delta\ndata: {{"type":"content_block_delta","index":{idx},"delta":{{"type":"text_delta","text":{safe_content}}}}}\n\n'
 
                     if delta.tool_calls:
@@ -553,10 +564,11 @@ def stream_opencode_response(session):
                             if block_idx is not None:
                                 args = getattr(getattr(tool_call, "function", None), "arguments", None)
                                 if args:
+                                    clean_args = _strip_surrogates(args)
                                     if "raw_json" not in content_blocks[block_idx]:
                                         content_blocks[block_idx]["raw_json"] = ""
-                                    content_blocks[block_idx]["raw_json"] += args
-                                    safe_args = json.dumps(args)
+                                    content_blocks[block_idx]["raw_json"] += clean_args
+                                    safe_args = json.dumps(clean_args)
                                     yield f'event: content_block_delta\ndata: {{"type":"content_block_delta","index":{block_idx},"delta":{{"type":"input_json_delta","partial_json":{safe_args}}}}}\n\n'
 
                 if getattr(chunk, "usage", None):
@@ -870,9 +882,6 @@ def proxy_fetch():
         except (LookupError, UnicodeDecodeError):
             text = raw.decode("utf-8", errors="replace")
 
-        # Sanitize: remove surrogate characters that break JSON UTF-8 encoding
-        text = text.encode("utf-8", "surrogatepass").decode("utf-8", "ignore")
-
         # Strip HTML if applicable
         if "html" in content_type.lower():
             extractor = _TextExtractor()
@@ -894,6 +903,9 @@ def proxy_fetch():
 
         if truncated:
             text += f"\n\n(Truncated — fetched {total} bytes total)"
+
+        # Sanitize: remove surrogate characters that break JSON UTF-8 encoding
+        text = _strip_surrogates(text)
 
         return jsonify({
             "content": text,
