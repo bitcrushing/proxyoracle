@@ -369,27 +369,48 @@ function ui.printAutoEnd(reason)
   print("")
 end
 
--- Page lines with "-- More --" prompt
+-- Page lines with "Press any key" prompt
+-- Clears screen between pages so content is always readable
 function ui.pageLines(lines, title)
   local w, h = ui.getSize()
   local pageSize = math.max(h - 2, 4)
-  local printed = 0
+  local totalLines = #lines
+  local lineIdx = 1
+  local pageNum = 1
+  local totalPages = math.ceil(totalLines / pageSize)
 
-  if title then
-    print(title)
-    printed = 1
-  end
+  while lineIdx <= totalLines do
+    term.clear()
+    local y = 1
 
-  for _, line in ipairs(lines) do
-    print(line)
-    printed = printed + 1
-    if printed >= pageSize then
+    if title then
+      term.setCursor(1, y)
+      print(title)
+      y = y + 1
+    end
+
+    local linesThisPage = 0
+    while lineIdx <= totalLines and linesThisPage < pageSize do
+      term.setCursor(1, y)
+      print(lines[lineIdx])
+      lineIdx = lineIdx + 1
+      linesThisPage = linesThisPage + 1
+      y = y + 1
+    end
+
+    if lineIdx <= totalLines then
+      term.setCursor(1, h)
       ui.setColors(ui.colors.yellow)
-      io.write("-- More -- (press any key) --")
+      io.write("-- More (" .. pageNum .. "/" .. totalPages .. ") -- press any key --")
       ui.resetColors()
-      event.pull("key")
-      print("")
-      printed = 0
+      -- Wait for actual key press; ignore spurious events
+      while true do
+        local ev = {event.pull("key_down")}
+        if ev[1] == "key_down" then
+          break
+        end
+      end
+      pageNum = pageNum + 1
     end
   end
 end
