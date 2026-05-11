@@ -870,6 +870,9 @@ def proxy_fetch():
         except (LookupError, UnicodeDecodeError):
             text = raw.decode("utf-8", errors="replace")
 
+        # Sanitize: remove surrogate characters that break JSON UTF-8 encoding
+        text = text.encode("utf-8", "surrogatepass").decode("utf-8", "ignore")
+
         # Strip HTML if applicable
         if "html" in content_type.lower():
             extractor = _TextExtractor()
