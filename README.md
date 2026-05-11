@@ -42,7 +42,13 @@ Edit `proxy_config.json` to add your OpenCode API key:
 {
   "api_key": "sk-ant-your-key-here",
   "auth_token": "auto-generated-token",
-  "allowed_models": ["opencode-sonnet-4-6", "opencode-opus-4-6", "opencode-haiku-4-5-20251001"],
+  "allowed_models": [
+    "gpt-5.5", "gpt-5.5-pro", "gpt-5.4-mini", "gpt-5.4-nano",
+    "claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5",
+    "gemini-3.1-pro", "gemini-3-flash",
+    "big-pickle", "glm-5.1",
+    "kimi-k2.6", "minimax-m2.7", "qwen3.6-plus", "trinity-large-preview-free"
+  ],
   "max_sessions": 10,
   "max_messages_per_session": 500,
   "bind_host": "0.0.0.0",
@@ -76,7 +82,9 @@ On your OpenComputers computer:
 install
 
 # Or install to external drive:
-install /mnt/abc
+# (Must use 'lua install.lua' — OpenComputers has a built-in 'install'
+# command that will intercept 'install.lua /mnt/abc' and fail)
+lua install.lua /mnt/abc
 
 # Configure:
 opencode --setup
