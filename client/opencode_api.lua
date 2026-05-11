@@ -1,4 +1,4 @@
--- Claude API client for OpenComputers (ProxyOracle thin client)
+-- Zen API client for OpenComputers (ProxyOracle thin client)
 -- Communicates with ProxyOracle proxy server over plain HTTP.
 -- No TLS, no conversation storage, no data card required.
 
@@ -130,7 +130,7 @@ local function createLineReader(sock, timeout)
   end
 end
 
--- Process SSE stream events from proxy (same format as Anthropic API).
+-- Process SSE stream events from proxy (same format as OpenCode API).
 -- Thinking events are already filtered by the proxy.
 local function processSSEStream(readLine, onText, onToolUse)
   local currentEvent = nil
@@ -232,7 +232,10 @@ local function processSSEStream(readLine, onText, onToolUse)
         local ok, data = pcall(json.decode, dataStr)
         if ok and data then
           if data.usage then
-            usage.output_tokens = data.usage.output_tokens or 0
+            usage.output_tokens = data.usage.output_tokens or usage.output_tokens
+            if data.usage.input_tokens then
+              usage.input_tokens = data.usage.input_tokens
+            end
           end
           if data.delta and data.delta.stop_reason then
             stopReason = data.delta.stop_reason

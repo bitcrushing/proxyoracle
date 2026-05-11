@@ -1,7 +1,7 @@
 """
 ProxyOracle — Claude API proxy server for OpenComputers clients.
 
-Handles TLS to Anthropic, stores conversation history, filters thinking
+Handles TLS to OpenCode Zen, stores conversation history, filters thinking
 blocks, and streams SSE responses to thin OC clients over plain HTTP.
 
 Usage:
@@ -9,7 +9,7 @@ Usage:
     python proxy.py
 
 First run auto-generates proxy_config.json with a random auth token.
-Configure your Anthropic API key in proxy_config.json before use.
+Configure your OpenCode Zen API key in proxy_config.json before use.
 """
 
 import html
@@ -22,7 +22,8 @@ import uuid
 from functools import wraps
 from html.parser import HTMLParser
 
-import anthropic
+import openai
+from openai import OpenAI
 import requests as http_requests
 from flask import Flask, Response, jsonify, request
 
@@ -39,9 +40,21 @@ DEFAULT_CONFIG = {
     "api_key": "",
     "auth_token": "",
     "allowed_models": [
+        "big-pickle",
+        "claude-haiku-4-5",
+        "claude-opus-4-7",
         "claude-sonnet-4-6",
-        "claude-opus-4-6",
-        "claude-haiku-4-5-20251001",
+        "gemini-3-flash",
+        "gemini-3.1-pro",
+        "glm-5.1",
+        "gpt-5.4-mini",
+        "gpt-5.4-nano",
+        "gpt-5.5",
+        "gpt-5.5-pro",
+        "kimi-k2.6",
+        "minimax-m2.7",
+        "qwen3.6-plus",
+        "trinity-large-preview-free"
     ],
     "max_sessions": 10,
     "max_messages_per_session": 500,
@@ -50,172 +63,213 @@ DEFAULT_CONFIG = {
 }
 
 # Tool definitions — same schemas as the OC client's tools.lua
+
+# Tool definitions in OpenAI format
 TOOL_DEFINITIONS = [
     {
-        "name": "Read",
-        "description": "Read a file. Use absolute paths.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "file_path": {"type": "string"},
-                "offset": {"type": "number"},
-                "limit": {"type": "number"},
-            },
-            "required": ["file_path"],
-        },
+        "type": "function",
+        "function": {
+            "name": "Read",
+            "description": "Read a file. Use absolute paths.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string"},
+                    "offset": {"type": "number"},
+                    "limit": {"type": "number"},
+                },
+                "required": ["file_path"],
+            }
+        }
     },
     {
-        "name": "Write",
-        "description": "Write a file. Requires confirmation.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "file_path": {"type": "string"},
-                "content": {"type": "string"},
-            },
-            "required": ["file_path", "content"],
-        },
+        "type": "function",
+        "function": {
+            "name": "Write",
+            "description": "Write a file. Requires confirmation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["file_path", "content"],
+            }
+        }
     },
     {
-        "name": "Edit",
-        "description": "Find and replace text in a file. Requires confirmation.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "file_path": {"type": "string"},
-                "old_string": {"type": "string"},
-                "new_string": {"type": "string"},
-                "replace_all": {"type": "boolean"},
-            },
-            "required": ["file_path", "old_string", "new_string"],
-        },
+        "type": "function",
+        "function": {
+            "name": "Edit",
+            "description": "Find and replace text in a file. Requires confirmation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string"},
+                    "old_string": {"type": "string"},
+                    "new_string": {"type": "string"},
+                    "replace_all": {"type": "boolean"},
+                },
+                "required": ["file_path", "old_string", "new_string"],
+            }
+        }
     },
     {
-        "name": "Run",
-        "description": "Run a shell command. Requires confirmation.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"command": {"type": "string"}},
-            "required": ["command"],
-        },
+        "type": "function",
+        "function": {
+            "name": "Run",
+            "description": "Run a shell command. Requires confirmation.",
+            "parameters": {
+                "type": "object",
+                "properties": {"command": {"type": "string"}},
+                "required": ["command"],
+            }
+        }
     },
     {
-        "name": "Glob",
-        "description": "Find files by glob pattern (*, **, ?).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "pattern": {"type": "string"},
-                "path": {"type": "string"},
-            },
-            "required": ["pattern"],
-        },
+        "type": "function",
+        "function": {
+            "name": "Glob",
+            "description": "Find files by glob pattern (*, **, ?).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string"},
+                    "path": {"type": "string"},
+                },
+                "required": ["pattern"],
+            }
+        }
     },
     {
-        "name": "Grep",
-        "description": "Search file contents by Lua pattern.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "pattern": {"type": "string"},
-                "path": {"type": "string"},
-                "include": {"type": "string"},
-            },
-            "required": ["pattern"],
-        },
+        "type": "function",
+        "function": {
+            "name": "Grep",
+            "description": "Search file contents by Lua pattern.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string"},
+                    "path": {"type": "string"},
+                    "include": {"type": "string"},
+                },
+                "required": ["pattern"],
+            }
+        }
     },
     {
-        "name": "Fetch",
-        "description": "HTTP GET a URL. Returns text content, HTML tags stripped.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"url": {"type": "string"}},
-            "required": ["url"],
-        },
+        "type": "function",
+        "function": {
+            "name": "Fetch",
+            "description": "HTTP GET a URL. Returns text content, HTML tags stripped.",
+            "parameters": {
+                "type": "object",
+                "properties": {"url": {"type": "string"}},
+                "required": ["url"],
+            }
+        }
     },
     {
-        "name": "Component",
-        "description": "Access OC hardware. action='list' shows components. action='call' invokes a method (address, method, args[]).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string"},
-                "address": {"type": "string"},
-                "method": {"type": "string"},
-                "args": {"type": "array", "items": {}},
-            },
-            "required": ["action"],
-        },
+        "type": "function",
+        "function": {
+            "name": "Component",
+            "description": "Access OC hardware. action='list' shows components. action='call' invokes a method (address, method, args[]).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "address": {"type": "string"},
+                    "method": {"type": "string"},
+                    "args": {"type": "array", "items": {}},
+                },
+                "required": ["action"],
+            }
+        }
     },
     {
-        "name": "Inventory",
-        "description": "Read inventories via transposer/adapter. side=0-5. Optional slot number.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "side": {"type": "number"},
-                "slot": {"type": "number"},
-            },
-            "required": ["side"],
-        },
+        "type": "function",
+        "function": {
+            "name": "Inventory",
+            "description": "Read inventories via transposer/adapter. side=0-5. Optional slot number.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "side": {"type": "number"},
+                    "slot": {"type": "number"},
+                },
+                "required": ["side"],
+            }
+        }
     },
     {
-        "name": "Redstone",
-        "description": "Read/set redstone. action='get' reads input, action='set' sets output (value 0-15).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string"},
-                "side": {"type": "number"},
-                "value": {"type": "number"},
-            },
-            "required": ["action", "side"],
-        },
+        "type": "function",
+        "function": {
+            "name": "Redstone",
+            "description": "Read/set redstone. action='get' reads input, action='set' sets output (value 0-15).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "side": {"type": "number"},
+                    "value": {"type": "number"},
+                },
+                "required": ["action", "side"],
+            }
+        }
     },
     {
-        "name": "ME",
-        "description": "AE2/ME system. action='items' (optional filter), action='craft' (item, count), action='status'.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string"},
-                "filter": {"type": "string"},
-                "item": {"type": "string"},
-                "count": {"type": "number"},
-            },
-            "required": ["action"],
-        },
+        "type": "function",
+        "function": {
+            "name": "ME",
+            "description": "AE2/ME system. action='items' (optional filter), action='craft' (item, count), action='status'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "filter": {"type": "string"},
+                    "item": {"type": "string"},
+                    "count": {"type": "number"},
+                },
+                "required": ["action"],
+            }
+        }
     },
     {
-        "name": "Robot",
-        "description": "Control robot. action: move/turn/swing/place/use/detect/inspect/suck/drop/inventory. direction: forward/up/down. side: left/right.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string"},
-                "direction": {"type": "string"},
-                "side": {"type": "string"},
-                "slot": {"type": "number"},
-            },
-            "required": ["action"],
-        },
+        "type": "function",
+        "function": {
+            "name": "Robot",
+            "description": "Control robot. action: move/turn/swing/place/use/detect/inspect/suck/drop/inventory. direction: forward/up/down. side: left/right.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "direction": {"type": "string"},
+                    "side": {"type": "string"},
+                    "slot": {"type": "number"},
+                },
+                "required": ["action"],
+            }
+        }
     },
     {
-        "name": "Scan",
-        "description": "Terrain scanning. action='block' (x,y,z offset), action='area' (w,d,h volume), action='position' (GPS coords).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string"},
-                "x": {"type": "number"},
-                "y": {"type": "number"},
-                "z": {"type": "number"},
-                "w": {"type": "number"},
-                "d": {"type": "number"},
-                "h": {"type": "number"},
-            },
-            "required": ["action"],
-        },
+        "type": "function",
+        "function": {
+            "name": "Scan",
+            "description": "Terrain scanning. action='block' (x,y,z offset), action='area' (w,d,h volume), action='position' (GPS coords).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "x": {"type": "number"},
+                    "y": {"type": "number"},
+                    "z": {"type": "number"},
+                    "w": {"type": "number"},
+                    "d": {"type": "number"},
+                    "h": {"type": "number"},
+                },
+                "required": ["action"],
+            }
+        }
     },
 ]
 
@@ -238,7 +292,7 @@ def load_config():
     print(f"\n{'='*60}")
     print("First run — generated proxy_config.json")
     print(f"Auth token: {cfg['auth_token']}")
-    print("Please set your Anthropic API key in proxy_config.json")
+    print("Please set your OpenCode Zen API key in proxy_config.json")
     print(f"{'='*60}\n")
     return cfg
 
@@ -355,10 +409,10 @@ def check_rate_limit():
 # SSE streaming helpers
 # ---------------------------------------------------------------------------
 
-def stream_anthropic_response(session):
+def stream_opencode_response(session):
     """
-    Call Anthropic API with session state, stream SSE events to the OC client.
-    Filters out thinking events. Stores assistant response in session.
+    Call OpenCode Zen API with session state, stream SSE events to the OC client.
+    Converts OpenAI streaming chunks back to the format the Lua client expects.
     """
     if not config["api_key"]:
         yield 'event: error\ndata: {"error":{"type":"config_error","message":"API key not configured on proxy"}}\n\n'
@@ -374,137 +428,160 @@ def stream_anthropic_response(session):
         yield 'event: error\ndata: {"error":{"type":"limit_error","message":"Session message limit reached. Use /clear to start fresh."}}\n\n'
         return
 
-    client = anthropic.Anthropic(api_key=config["api_key"])
+    client = OpenAI(api_key=config["api_key"], base_url="https://opencode.ai/zen/v1")
 
-    # Build API request
+    # Translate messages to OpenAI format
+    openai_messages = []
+    if session["system_prompt"]:
+        openai_messages.append({"role": "system", "content": session["system_prompt"]})
+        
+    for msg in session["messages"]:
+        if msg["role"] == "user":
+            if isinstance(msg["content"], str):
+                openai_messages.append({"role": "user", "content": msg["content"]})
+            else:
+                # User sending tool_result
+                for block in msg["content"]:
+                    if block.get("type") == "tool_result":
+                        openai_messages.append({
+                            "role": "tool",
+                            "tool_call_id": block.get("tool_use_id", ""),
+                            "content": str(block.get("content", ""))
+                        })
+        elif msg["role"] == "assistant":
+            # Translate content array to string + tool_calls
+            text_content = ""
+            tool_calls = []
+            for block in msg["content"]:
+                if block["type"] == "text":
+                    text_content += block.get("text", "")
+                elif block["type"] == "tool_use":
+                    tool_calls.append({
+                        "id": block.get("id", ""),
+                        "type": "function",
+                        "function": {
+                            "name": block.get("name", ""),
+                            "arguments": json.dumps(block.get("input", {}))
+                        }
+                    })
+            msg_dict = {"role": "assistant"}
+            if text_content:
+                msg_dict["content"] = text_content
+            if tool_calls:
+                msg_dict["tool_calls"] = tool_calls
+            openai_messages.append(msg_dict)
+
     api_kwargs = {
         "model": session["model"],
-        "max_tokens": session["max_tokens"],
-        "messages": session["messages"],
+        "messages": openai_messages,
         "tools": TOOL_DEFINITIONS,
-        "thinking": {"type": "adaptive"},
-        "output_config": {"effort": "high"},
+        "stream": True,
+        "stream_options": {"include_usage": True}
     }
 
-    if session["system_prompt"]:
-        api_kwargs["system"] = session["system_prompt"]
-
-    # Track content blocks for storage
+    # Tracking for storage and Anthropic-format emission
     content_blocks = {}
-    json_accumulator = []
-    usage = {"input_tokens": 0, "output_tokens": 0}
-    stop_reason = None
-
-    # Track which blocks are thinking (to filter from SSE output)
-    thinking_indices = set()
-
+    
     max_retries = 2
     last_error = None
 
     for attempt in range(max_retries):
         try:
-            with client.messages.stream(
-                **api_kwargs,
-                extra_headers={
-                    "anthropic-beta": "interleaved-thinking-2025-05-14,effort-2025-11-24"
-                },
-            ) as stream:
-                for event in stream:
-                    event_type = event.type
-                    event_data = event.model_dump()
-
-                    # --- Track content blocks for storage ---
-
-                    if event_type == "content_block_start":
-                        idx = event_data.get("index", 0)
-                        block = event_data.get("content_block", {})
-                        block_type = block.get("type", "")
-
-                        if block_type == "thinking":
-                            thinking_indices.add(idx)
-                            content_blocks[idx] = {
-                                "type": "thinking",
-                                "thinking": "",
-                                "signature": "",
-                            }
-                            continue  # Don't forward to OC
-
-                        elif block_type == "text":
+            response = client.chat.completions.create(**api_kwargs)
+            
+            # Emit message_start
+            yield f'event: message_start\ndata: {{"type":"message_start","message":{{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"{session["model"]}","stop_reason":null,"stop_sequence":null,"usage":{{"input_tokens":0,"output_tokens":0}}}}}}\n\n'
+            
+            idx = 0
+            current_block_type = None
+            final_stop_reason = "end_turn"
+            final_in_t = 0
+            final_out_t = 0
+            
+            for chunk in response:
+                if chunk.choices and len(chunk.choices) > 0:
+                    delta = chunk.choices[0].delta
+                    if chunk.choices[0].finish_reason:
+                        fr = chunk.choices[0].finish_reason
+                        if fr == "tool_calls":
+                            final_stop_reason = "tool_use"
+                        elif fr == "length":
+                            final_stop_reason = "max_tokens"
+                        elif fr == "stop":
+                            final_stop_reason = "end_turn"
+                    
+                    if delta.content:
+                        if current_block_type != "text":
+                            if current_block_type is not None:
+                                yield f'event: content_block_stop\ndata: {{"type":"content_block_stop","index":{idx}}}\n\n'
+                                idx += 1
+                            current_block_type = "text"
                             content_blocks[idx] = {"type": "text", "text": ""}
-                        elif block_type == "tool_use":
-                            content_blocks[idx] = {
-                                "type": "tool_use",
-                                "id": block.get("id", ""),
-                                "name": block.get("name", ""),
-                                "input": {},
-                            }
-                            json_accumulator.clear()
+                            yield f'event: content_block_start\ndata: {{"type":"content_block_start","index":{idx},"content_block":{{"type":"text","text":""}}}}\n\n'
+                        
+                        content_blocks[idx]["text"] += delta.content
+                        safe_content = json.dumps(delta.content)
+                        yield f'event: content_block_delta\ndata: {{"type":"content_block_delta","index":{idx},"delta":{{"type":"text_delta","text":{safe_content}}}}}\n\n'
 
-                    elif event_type == "content_block_delta":
-                        idx = event_data.get("index", 0)
-                        delta = event_data.get("delta", {})
-                        delta_type = delta.get("type", "")
+                    if delta.tool_calls:
+                        for tool_call in delta.tool_calls:
+                            if tool_call.id:
+                                # New tool call
+                                if current_block_type is not None:
+                                    yield f'event: content_block_stop\ndata: {{"type":"content_block_stop","index":{idx}}}\n\n'
+                                    idx += 1
+                                current_block_type = "tool_use"
+                                content_blocks[idx] = {"type": "tool_use", "id": tool_call.id, "name": tool_call.function.name, "input": {}}
+                                yield f'event: content_block_start\ndata: {{"type":"content_block_start","index":{idx},"content_block":{{"type":"tool_use","id":"{tool_call.id}","name":"{tool_call.function.name}","input":{{}}}}}}\n\n'
+                            
+                            if getattr(tool_call, "function", None) and getattr(tool_call.function, "arguments", None):
+                                safe_args = json.dumps(tool_call.function.arguments)
+                                # we need to store raw json for parsing at the end
+                                if "raw_json" not in content_blocks[idx]:
+                                    content_blocks[idx]["raw_json"] = ""
+                                content_blocks[idx]["raw_json"] += tool_call.function.arguments
+                                yield f'event: content_block_delta\ndata: {{"type":"content_block_delta","index":{idx},"delta":{{"type":"input_json_delta","partial_json":{safe_args}}}}}\n\n'
 
-                        if idx in thinking_indices:
-                            # Accumulate thinking for storage, don't forward
-                            if delta_type == "thinking_delta":
-                                content_blocks[idx]["thinking"] += delta.get("thinking", "")
-                            elif delta_type == "signature_delta":
-                                content_blocks[idx]["signature"] = delta.get("signature", "")
-                            continue  # Don't forward to OC
-
-                        if delta_type == "text_delta":
-                            text = delta.get("text", "")
-                            if idx in content_blocks and content_blocks[idx]["type"] == "text":
-                                content_blocks[idx]["text"] += text
-                        elif delta_type == "input_json_delta":
-                            json_accumulator.append(delta.get("partial_json", ""))
-
-                    elif event_type == "content_block_stop":
-                        idx = event_data.get("index", 0)
-                        if idx in thinking_indices:
-                            continue  # Don't forward
-
-                        # Parse accumulated tool input JSON
-                        if idx in content_blocks and content_blocks[idx]["type"] == "tool_use":
-                            full_json = "".join(json_accumulator)
-                            if full_json:
-                                try:
-                                    content_blocks[idx]["input"] = json.loads(full_json)
-                                except json.JSONDecodeError:
-                                    pass
-                            json_accumulator.clear()
-
-                    elif event_type == "message_start":
-                        msg = event_data.get("message", {})
-                        msg_usage = msg.get("usage", {})
-                        usage["input_tokens"] = msg_usage.get("input_tokens", 0)
-
-                    elif event_type == "message_delta":
-                        delta = event_data.get("delta", {})
-                        msg_usage = event_data.get("usage", {})
-                        usage["output_tokens"] = msg_usage.get("output_tokens", 0)
-                        stop_reason = delta.get("stop_reason")
-
-                    # --- Forward non-thinking events to OC as SSE ---
-                    sse_data = json.dumps(event_data, separators=(",", ":"))
-                    yield f"event: {event_type}\ndata: {sse_data}\n\n"
+                if getattr(chunk, "usage", None):
+                    # Final usage
+                    # parse final tool json inputs for storage
+                    for b_idx, block in content_blocks.items():
+                        if block["type"] == "tool_use" and "raw_json" in block:
+                            try:
+                                block["input"] = json.loads(block["raw_json"])
+                            except:
+                                pass
+                            del block["raw_json"]
+                            
+                    # Update token counters
+                    final_in_t = chunk.usage.prompt_tokens
+                    final_out_t = chunk.usage.completion_tokens
+                    session["total_input_tokens"] += final_in_t
+                    session["total_output_tokens"] += final_out_t
+                    
+            if current_block_type is not None:
+                yield f'event: content_block_stop\ndata: {{"type":"content_block_stop","index":{idx}}}\n\n'
+                
+            yield f'event: message_delta\ndata: {{"type":"message_delta","delta":{{"stop_reason":"{final_stop_reason}","stop_sequence":null}},"usage":{{"input_tokens":{final_in_t},"output_tokens":{final_out_t}}}}}\n\n'
+            yield f'event: message_stop\ndata: {{"type":"message_stop"}}\n\n'
 
             # Stream completed successfully
             last_error = None
             break
 
-        except anthropic.RateLimitError:
-            last_error = "Rate limited by Anthropic"
+        except openai.RateLimitError:
+            last_error = "Rate limited by OpenCode Zen"
             if attempt < max_retries - 1:
+                import time
                 time.sleep(2)
                 continue
-        except anthropic.InternalServerError:
-            last_error = "Anthropic server error"
+        except openai.InternalServerError:
+            last_error = "OpenCode Zen server error"
             if attempt < max_retries - 1:
+                import time
                 time.sleep(2)
                 continue
-        except anthropic.APIError as e:
+        except openai.APIError as e:
             last_error = str(e)
             yield f'event: error\ndata: {{"error":{{"type":"api_error","message":{json.dumps(last_error)}}}}}\n\n'
             return
@@ -519,15 +596,11 @@ def stream_anthropic_response(session):
 
     # Store assistant response in session
     ordered_content = []
-    for idx in sorted(content_blocks.keys()):
-        ordered_content.append(content_blocks[idx])
+    for i in sorted(content_blocks.keys()):
+        ordered_content.append(content_blocks[i])
 
     if ordered_content:
         session["messages"].append({"role": "assistant", "content": ordered_content})
-
-    # Update token counters
-    session["total_input_tokens"] += usage.get("input_tokens", 0)
-    session["total_output_tokens"] += usage.get("output_tokens", 0)
 
     save_session(session)
 
@@ -543,7 +616,7 @@ def create_session_endpoint():
         return jsonify({"error": {"type": "rate_limit", "message": "Too many requests"}}), 429
 
     data = request.get_json(silent=True) or {}
-    model = data.get("model", "claude-sonnet-4-6")
+    model = data.get("model", "gpt-5.5")
     max_tokens = data.get("max_tokens", 16384)
     system_prompt = data.get("system_prompt", "")
 
@@ -573,7 +646,7 @@ def send_message(session_id):
     session["messages"].append({"role": "user", "content": text})
 
     return Response(
-        stream_anthropic_response(session),
+        stream_opencode_response(session),
         content_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -611,7 +684,7 @@ def send_tool_result(session_id):
     session["messages"].append({"role": "user", "content": content})
 
     return Response(
-        stream_anthropic_response(session),
+        stream_opencode_response(session),
         content_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -865,7 +938,7 @@ def health():
 if __name__ == "__main__":
     if not config["api_key"]:
         print("\nWARNING: No API key configured!")
-        print(f"Edit {CONFIG_PATH} and set your Anthropic API key.\n")
+        print(f"Edit {CONFIG_PATH} and set your OpenCode Zen API key.\n")
 
     print(f"ProxyOracle starting on {config['bind_host']}:{config['bind_port']}")
     print(f"Auth token: {config['auth_token'][:8]}...")

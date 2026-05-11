@@ -1,6 +1,6 @@
--- Tool definitions and execution for Claude Code
+-- Tool definitions and execution for OpenCode Zen
 -- Implements filesystem and shell tools for OpenComputers
--- No dependency on ui.lua or claude_api.lua
+-- No dependency on ui.lua or opencode_api.lua
 
 local filesystem = require("filesystem")
 local shell = require("shell")
@@ -456,7 +456,7 @@ local function executeRun(input)
   local command = input.command
   if not command then return "Error: command is required", true end
 
-  local outFile = "/tmp/.claude_cmd_out"
+  local outFile = "/tmp/.opencode_cmd_out"
 
   -- If command has its own redirect, run as-is (can't capture output)
   local success
@@ -628,7 +628,7 @@ local function executeFetch(input)
     return "Error: proxy not configured", true
   end
 
-  local content, err = require("claude_api").fetch(cfg.proxy_host, cfg.proxy_port, cfg.proxy_token, url)
+  local content, err = require("opencode_api").fetch(cfg.proxy_host, cfg.proxy_port, cfg.proxy_token, url)
   if not content then
     return "Error fetching URL: " .. tostring(err), true
   end

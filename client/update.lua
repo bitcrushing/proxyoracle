@@ -14,10 +14,10 @@ local args = {...}
 local BASE_URL = "https://raw.githubusercontent.com/bitcrushing/ProxyOracle/main/client/"
 
 local ALL_FILES = {
-  "json.lua", "config.lua", "claude_api.lua", "ui.lua", "tools.lua",
-  "claude.lua", "update.lua"
+  "json.lua", "config.lua", "opencode_api.lua", "ui.lua", "tools.lua",
+  "opencode.lua", "update.lua"
 }
-local BIN_NAMES = {["claude.lua"] = "claude", ["update.lua"] = "update"}
+local BIN_NAMES = {["opencode.lua"] = "opencode", ["update.lua"] = "update"}
 
 local function fetch(url)
   if not url:match("^https?://") then
@@ -60,7 +60,7 @@ local function update()
       print("Error: Path not found: " .. targetBase)
       return false
     end
-    INSTALL_DIR = filesystem.concat(targetBase, "claude")
+    INSTALL_DIR = filesystem.concat(targetBase, "opencode")
     externalInstall = true
   end
 

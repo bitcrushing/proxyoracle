@@ -1,5 +1,5 @@
 -- JSON library for OpenComputers
--- Handles encoding/decoding JSON for Claude API communication
+-- Handles encoding/decoding JSON for Zen API communication
 -- Optimized for minimal memory allocation
 
 local json = {}

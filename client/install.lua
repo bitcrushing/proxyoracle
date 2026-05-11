@@ -10,8 +10,8 @@ local component = require("component")
 
 local args = {...}
 
-local ALL_FILES = {"json.lua", "config.lua", "claude_api.lua", "ui.lua", "tools.lua", "claude.lua", "update.lua"}
-local BIN_NAMES = {["claude.lua"] = "claude", ["update.lua"] = "update"}
+local ALL_FILES = {"json.lua", "config.lua", "opencode_api.lua", "ui.lua", "tools.lua", "opencode.lua", "update.lua"}
+local BIN_NAMES = {["opencode.lua"] = "opencode", ["update.lua"] = "update"}
 
 print("=== ProxyOracle Installer ===")
 print("")
@@ -34,7 +34,7 @@ if targetBase then
     end
     return
   end
-  INSTALL_DIR = filesystem.concat(targetBase, "claude")
+  INSTALL_DIR = filesystem.concat(targetBase, "opencode")
   externalInstall = true
   print("Installing to external drive: " .. INSTALL_DIR)
 else
@@ -105,8 +105,8 @@ print("Installation complete!")
 print("")
 print("Next steps:")
 print("  1. Start the ProxyOracle proxy server on your host machine")
-print("  2. Run 'claude --setup' to configure proxy connection")
-print("  3. Run 'claude' to start chatting!")
+print("  2. Run 'opencode --setup' to configure proxy connection")
+print("  3. Run 'opencode' to start chatting!")
 print("")
 print("No TLS library or Data Card required.")
 print("Requires: Internet Card")

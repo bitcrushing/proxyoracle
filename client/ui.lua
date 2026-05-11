@@ -1,4 +1,4 @@
--- Terminal UI utilities for Claude Code
+-- Terminal UI utilities for OpenCode Zen
 -- Handles display, input, and formatting
 
 local component = require("component")
@@ -57,7 +57,7 @@ end
 -- Print header/banner
 function ui.printHeader()
   local width = ui.getSize()
-  local banner = "Claude Code for OpenComputers"
+  local banner = "OpenCode Zen for OpenComputers"
   local padding = math.floor((width - #banner) / 2)
 
   print("")
@@ -77,11 +77,11 @@ function ui.printPrompt()
   ui.resetColors()
 end
 
--- Print Claude's response label (ensure it starts on a new line)
+-- Print Zen's response label (ensure it starts on a new line)
 function ui.printResponseLabel()
   io.write("\n")
   ui.setColors(ui.colors.cyan)
-  print("Claude:")
+  print("Zen:")
   ui.resetColors()
 end
 
@@ -395,7 +395,7 @@ function ui.printHelp()
   print("  - Press Ctrl+C to interrupt")
   print("  - Use arrow keys for input history")
   print("  - Responses stream in real-time")
-  print("  - /auto runs Claude autonomously toward a goal")
+  print("  - /auto runs Zen autonomously toward a goal")
   print("")
 end
 

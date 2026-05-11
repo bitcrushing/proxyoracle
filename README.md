@@ -1,6 +1,6 @@
 # ProxyOracle
 
-A Claude AI proxy server + thin OpenComputers client. Offloads TLS, conversation storage, and thinking blocks to a proxy server, letting the OC client run comfortably on 1MB RAM.
+A Zen AI proxy server + thin OpenComputers client. Offloads TLS, conversation storage, and thinking blocks to a proxy server, letting the OC client run comfortably on 1MB RAM.
 
 ## Architecture
 
@@ -18,7 +18,7 @@ OC Computer (1MB RAM)              Proxy Server (any machine)
 
 ### Proxy Server
 - Python 3.8+
-- Anthropic API key
+- OpenCode API key
 
 ### OC Client
 - Internet Card (no Data Card needed)
@@ -36,13 +36,13 @@ python proxy.py
 
 On first run, `proxy_config.json` is auto-generated with a random auth token.
 
-Edit `proxy_config.json` to add your Anthropic API key:
+Edit `proxy_config.json` to add your OpenCode API key:
 
 ```json
 {
   "api_key": "sk-ant-your-key-here",
   "auth_token": "auto-generated-token",
-  "allowed_models": ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"],
+  "allowed_models": ["opencode-sonnet-4-6", "opencode-opus-4-6", "opencode-haiku-4-5-20251001"],
   "max_sessions": 10,
   "max_messages_per_session": 500,
   "bind_host": "0.0.0.0",
@@ -63,7 +63,7 @@ If exposing to the internet:
   }
   ```
 - The auth token in `proxy_config.json` is your API key's guard — keep it secret
-- The Anthropic API key never leaves the proxy server
+- The OpenCode API key never leaves the proxy server
 - Consider IP allowlisting if possible
 - Rate limiting is built in (30 req/min default)
 
@@ -79,7 +79,7 @@ install
 install /mnt/abc
 
 # Configure:
-claude --setup
+opencode --setup
 ```
 
 Enter:
@@ -90,7 +90,7 @@ Enter:
 ### 4. Start Chatting
 
 ```
-claude
+opencode
 ```
 
 ## Commands
@@ -106,7 +106,7 @@ claude
 
 ## Tools
 
-Claude can use these tools on your OC computer:
+Zen can use these tools on your OC computer:
 
 | Tool | Description | Confirmation |
 |------|-------------|--------------|
@@ -134,7 +134,7 @@ Claude can use these tools on your OC computer:
 
 ## Security Notes
 
-- The Anthropic API key is stored ONLY on the proxy server
+- The OpenCode API key is stored ONLY on the proxy server
 - The OC client only has a bearer token — if compromised, revoke it by editing proxy_config.json
 - For internet exposure, always use HTTPS (Caddy, nginx, etc.)
 - The proxy rate-limits requests and caps session counts

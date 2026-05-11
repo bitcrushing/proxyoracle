@@ -1,12 +1,12 @@
--- Claude Code for OpenComputers (ProxyOracle thin client)
+-- OpenCode Zen for OpenComputers (ProxyOracle thin client)
 -- Connects to a ProxyOracle proxy server for API access.
 -- No TLS, no conversation storage, no data card required.
 --
 -- Installation:
 --   1. Copy all .lua files to /usr/lib/ (or external drive)
---   2. Copy claude.lua to /usr/bin/claude
---   3. Run 'claude --setup' to configure proxy connection
---   4. Run 'claude' to start chatting!
+--   2. Copy opencode.lua to /usr/bin/opencode
+--   3. Run 'opencode --setup' to configure proxy connection
+--   4. Run 'opencode' to start chatting!
 
 local args = {...}
 
@@ -17,9 +17,9 @@ package.path = package.path .. ";/usr/lib/?.lua"
 local _fs = require("filesystem")
 for proxy, mountPath in _fs.mounts() do
   if mountPath:sub(1, 5) == "/mnt/" then
-    local testFile = _fs.concat(mountPath, "claude/config.lua")
+    local testFile = _fs.concat(mountPath, "opencode/config.lua")
     if _fs.exists(testFile) then
-      local dirPath = _fs.concat(mountPath, "claude")
+      local dirPath = _fs.concat(mountPath, "opencode")
       package.path = package.path .. ";" .. dirPath .. "/?.lua"
       break
     end
@@ -33,7 +33,7 @@ for k in pairs(package.loaded) do
 end
 
 local config = require("config")
-local api = require("claude_api")
+local api = require("opencode_api")
 local ui = require("ui")
 local json = require("json")
 local tools = require("tools")
@@ -220,9 +220,26 @@ local function processCommand(input)
 
   elseif cmd == "model" then
     local models = {
+      -- Claude family
       sonnet = "claude-sonnet-4-6",
-      opus = "claude-opus-4-6",
-      haiku = "claude-haiku-4-5-20251001",
+      opus47 = "claude-opus-4-7",
+      haiku = "claude-haiku-4-5",
+      -- GPT family
+      gpt = "gpt-5.5",
+      gpt55 = "gpt-5.5",
+      gpt55pro = "gpt-5.5-pro",
+      gpt54mini = "gpt-5.4-mini",
+      gpt54nano = "gpt-5.4-nano",
+      -- Gemini family
+      gemini = "gemini-3.1-pro",
+      geminiflash = "gemini-3-flash",
+      -- Others
+      bigpickle = "big-pickle",
+      glm = "glm-5.1",
+      kimi = "kimi-k2.6",
+      minimax = "minimax-m2.7",
+      qwen = "qwen3.6-plus",
+      trinity = "trinity-large-preview-free",
     }
     print("")
     if cmdArg then
@@ -235,7 +252,8 @@ local function processCommand(input)
     else
       local cfg = config.load()
       ui.printInfo("Current model: " .. cfg.model)
-      ui.printInfo("Usage: /model sonnet | opus | haiku | <full-model-id>")
+      ui.printInfo("Usage: /model <alias> | <full-model-id>")
+      ui.printInfo("Aliases: sonnet, opus, haiku, gpt, gemini, bigpickle, kimi, etc.")
     end
     print("")
     return true
@@ -360,7 +378,7 @@ local function processCommand(input)
       ui.printInfo("No messages in history.")
     else
       for i, msg in ipairs(data.history) do
-        local role = msg.role == "user" and "You" or "Claude"
+        local role = msg.role == "user" and "You" or "Zen"
         local preview = msg.preview or ""
         if #preview > 50 then preview = preview:sub(1, 50) .. "..." end
         ui.setColors(msg.role == "user" and ui.colors.green or ui.colors.cyan)
@@ -513,7 +531,7 @@ local function sendChat(userInput)
       lastResponseText = table.concat(responseChunks)
     end
 
-    -- Check if Claude wants to use more tools
+    -- Check if Zen wants to use more tools
     if result.stop_reason ~= "tool_use" then
       break
     end
@@ -522,7 +540,7 @@ local function sendChat(userInput)
     local event = require("event")
     local evt = event.pull(0, "key_down")
     if evt then
-      ui.printInfo("Interrupted by user. Sending cancel to Claude...")
+      ui.printInfo("Interrupted by user. Sending cancel to Zen...")
       -- Send a cancellation as tool results so API gets valid response
       local cancelResults = {}
       for _, block in ipairs(result.content) do
@@ -548,7 +566,7 @@ local function sendChat(userInput)
   return true
 end
 
--- Autonomous loop: Claude works toward a goal across multiple iterations.
+-- Autonomous loop: Zen works toward a goal across multiple iterations.
 -- Maintains top-level goal, current sub-goal, and progress log.
 runAutonomousLoop = function(initialGoal)
   local event = require("event")
@@ -662,7 +680,7 @@ local function mainLoop(initialMessage)
   local cfg = config.load()
   if not cfg.proxy_host or cfg.proxy_host == "" then
     ui.printError("Proxy not configured.")
-    ui.printInfo("Run 'claude --setup' to configure proxy connection.")
+    ui.printInfo("Run 'opencode --setup' to configure proxy connection.")
     print("")
     return
   end
@@ -684,7 +702,7 @@ local function mainLoop(initialMessage)
   ui.printSuccess("Connected (session: " .. id .. ")")
 
   ui.printInfo("Type /help for commands, /exit to quit.")
-  ui.printInfo("Claude can read, write, and edit files on this computer.")
+  ui.printInfo("Zen can read, write, and edit files on this computer.")
   print("")
 
   if initialMessage and initialMessage ~= "" then
@@ -715,13 +733,13 @@ end
 
 -- Print version info
 local function printVersion()
-  print("Claude Code for OpenComputers v3.0.0 (ProxyOracle)")
-  print("Powered by Anthropic's Claude API via ProxyOracle proxy")
+  print("OpenCode Zen for OpenComputers v3.0.0 (ProxyOracle)")
+  print("Powered by OpenCode's Zen API via ProxyOracle proxy")
 end
 
 -- Print usage help
 local function printUsage()
-  print("Usage: claude [options] [message]")
+  print("Usage: opencode [options] [message]")
   print("")
   print("Options:")
   print("  --setup, -s    Configure proxy connection")
@@ -729,9 +747,9 @@ local function printUsage()
   print("  --version, -v  Show version information")
   print("")
   print("Examples:")
-  print("  claude                   Start interactive chat")
-  print("  claude --setup           Configure settings")
-  print("  claude \"Hello Claude!\"   Start with a message")
+  print("  opencode                   Start interactive chat")
+  print("  opencode --setup           Configure settings")
+  print("  opencode \"Hello Zen!\"   Start with a message")
 end
 
 -- Entry point

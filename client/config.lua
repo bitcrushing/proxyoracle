@@ -1,4 +1,4 @@
--- Configuration handler for Claude Code (ProxyOracle)
+-- Configuration handler for OpenCode Zen (ProxyOracle)
 -- Manages proxy connection and settings
 
 local filesystem = require("filesystem")
@@ -6,17 +6,17 @@ local json = require("json")
 
 local config = {}
 
-local CONFIG_PATH = "/etc/claude.cfg"
+local CONFIG_PATH = "/etc/opencode.cfg"
 local DEFAULT_CONFIG = {
   proxy_host = "",
   proxy_port = 8080,
   proxy_token = "",
-  model = "claude-sonnet-4-6",
+  model = "gpt-5.5",
   max_tokens = 16384,
   auto_allow = false,  -- true = skip confirmation for Write/Edit/Run
   auto_interval = 30,  -- seconds between auto mode iterations
   max_auto_iterations = 50,
-  system_prompt = "You are Claude on an OpenComputers Minecraft computer. Lua 5.3, forward slashes, working dir /home. Has internet card. Keep responses concise. Use absolute paths with tools. Note: lua -e is not available, write a temp .lua file instead. Hardware tools: Component (list/call OC components), Inventory (read inventories), Redstone (get/set signals), ME (AE2 items/craft/status), Robot (move/turn/swing/place/detect/suck/drop), Scan (geolyzer terrain/position). In auto mode, use tags: [NEXT_GOAL: text], [PROGRESS: summary], [WAIT: seconds], [DONE], [PAUSE]."
+  system_prompt = "You are Zen on an OpenComputers Minecraft computer. Lua 5.3, forward slashes, working dir /home. Has internet card. Keep responses concise. Use absolute paths with tools. Note: lua -e is not available, write a temp .lua file instead. Hardware tools: Component (list/call OC components), Inventory (read inventories), Redstone (get/set signals), ME (AE2 items/craft/status), Robot (move/turn/swing/place/detect/suck/drop), Scan (geolyzer terrain/position). In auto mode, use tags: [NEXT_GOAL: text], [PROGRESS: summary], [WAIT: seconds], [DONE], [PAUSE]."
 }
 
 -- Load configuration from file
@@ -126,9 +126,21 @@ function config.setup()
 
   -- Model selection
   local models = {
-    {id = "claude-sonnet-4-6", label = "Claude Sonnet 4.6 (default, balanced)"},
-    {id = "claude-opus-4-6", label = "Claude Opus 4.6 (most capable)"},
-    {id = "claude-haiku-4-5-20251001", label = "Claude Haiku 4.5 (fastest)"},
+    {id = "gpt-5.5", label = "GPT-5.5 (default, balanced)"},
+    {id = "gpt-5.5-pro", label = "GPT-5.5 Pro (advanced)"},
+    {id = "gpt-5.4-mini", label = "GPT-5.4 Mini"},
+    {id = "gpt-5.4-nano", label = "GPT-5.4 Nano"},
+    {id = "claude-sonnet-4-6", label = "Claude Sonnet 4.6"},
+    {id = "claude-opus-4-7", label = "Claude Opus 4.7"},
+    {id = "claude-haiku-4-5", label = "Claude Haiku 4.5 (fastest)"},
+    {id = "gemini-3.1-pro", label = "Gemini 3.1 Pro"},
+    {id = "gemini-3-flash", label = "Gemini 3 Flash"},
+    {id = "big-pickle", label = "Big Pickle"},
+    {id = "glm-5.1", label = "GLM-5.1"},
+    {id = "kimi-k2.6", label = "Kimi K2.6"},
+    {id = "minimax-m2.7", label = "MiniMax M2.7"},
+    {id = "qwen3.6-plus", label = "Qwen 3.6 Plus"},
+    {id = "trinity-large-preview-free", label = "Trinity Large Preview (free)"}
   }
 
   print("")
@@ -146,10 +158,9 @@ function config.setup()
     local num = tonumber(modelInput)
     if num and models[num] then
       cfg.model = models[num].id
-    elseif modelInput:match("^claude%-") then
-      cfg.model = modelInput
     else
-      print("Invalid selection, keeping current model.")
+      -- accept anything
+      cfg.model = modelInput
     end
   end
 
@@ -166,7 +177,7 @@ function config.setup()
   print("")
   local currentMode = cfg.auto_allow and "ON" or "OFF"
   print("Auto-allow mode: skip confirmation for Write/Edit/Run.")
-  print("Like 'yolo mode' in Claude Code. Currently: " .. currentMode)
+  print("Like 'yolo mode' in OpenCode Zen. Currently: " .. currentMode)
   io.write("Enable auto-allow? (y/n) [" .. currentMode .. "]: ")
   local autoInput = term.read()
   autoInput = autoInput and autoInput:gsub("%s+$", ""):lower() or ""
@@ -180,7 +191,7 @@ function config.setup()
   if success then
     print("")
     print("Configuration saved!")
-    print("Run 'claude' to start chatting.")
+    print("Run 'opencode' to start chatting.")
   else
     print("")
     print("Error saving config: " .. tostring(err))
