@@ -502,6 +502,7 @@ def stream_opencode_response(session):
             final_stop_reason = "end_turn"
             final_in_t = 0
             final_out_t = 0
+            tool_call_map = {}  # Maps OpenAI tool_call.index -> content_block index
             
             for chunk in response:
                 if chunk.choices and len(chunk.choices) > 0:
@@ -530,22 +531,33 @@ def stream_opencode_response(session):
 
                     if delta.tool_calls:
                         for tool_call in delta.tool_calls:
-                            if tool_call.id:
-                                # New tool call
+                            tc_idx = tool_call.index
+                            
+                            if tc_idx not in tool_call_map:
+                                # New tool call — require both id and name
+                                tc_name = getattr(getattr(tool_call, "function", None), "name", None)
+                                tc_id = getattr(tool_call, "id", None)
+                                if not tc_name or not tc_id:
+                                    # Skip incomplete tool call init
+                                    continue
+                                
                                 if current_block_type is not None:
                                     yield f'event: content_block_stop\ndata: {{"type":"content_block_stop","index":{idx}}}\n\n'
                                     idx += 1
                                 current_block_type = "tool_use"
-                                content_blocks[idx] = {"type": "tool_use", "id": tool_call.id, "name": tool_call.function.name, "input": {}}
-                                yield f'event: content_block_start\ndata: {{"type":"content_block_start","index":{idx},"content_block":{{"type":"tool_use","id":"{tool_call.id}","name":"{tool_call.function.name}","input":{{}}}}}}\n\n'
+                                tool_call_map[tc_idx] = idx
+                                content_blocks[idx] = {"type": "tool_use", "id": tc_id, "name": tc_name, "input": {}}
+                                yield f'event: content_block_start\ndata: {{"type":"content_block_start","index":{idx},"content_block":{{"type":"tool_use","id":"{tc_id}","name":"{tc_name}","input":{{}}}}}}\n\n'
                             
-                            if getattr(tool_call, "function", None) and getattr(tool_call.function, "arguments", None):
-                                safe_args = json.dumps(tool_call.function.arguments)
-                                # we need to store raw json for parsing at the end
-                                if "raw_json" not in content_blocks[idx]:
-                                    content_blocks[idx]["raw_json"] = ""
-                                content_blocks[idx]["raw_json"] += tool_call.function.arguments
-                                yield f'event: content_block_delta\ndata: {{"type":"content_block_delta","index":{idx},"delta":{{"type":"input_json_delta","partial_json":{safe_args}}}}}\n\n'
+                            block_idx = tool_call_map.get(tc_idx)
+                            if block_idx is not None:
+                                args = getattr(getattr(tool_call, "function", None), "arguments", None)
+                                if args:
+                                    if "raw_json" not in content_blocks[block_idx]:
+                                        content_blocks[block_idx]["raw_json"] = ""
+                                    content_blocks[block_idx]["raw_json"] += args
+                                    safe_args = json.dumps(args)
+                                    yield f'event: content_block_delta\ndata: {{"type":"content_block_delta","index":{block_idx},"delta":{{"type":"input_json_delta","partial_json":{safe_args}}}}}\n\n'
 
                 if getattr(chunk, "usage", None):
                     # Final usage
@@ -563,6 +575,15 @@ def stream_opencode_response(session):
                     final_out_t = chunk.usage.completion_tokens
                     session["total_input_tokens"] += final_in_t
                     session["total_output_tokens"] += final_out_t
+            
+            # Safety: parse any remaining raw_json before storing
+            for b_idx, block in content_blocks.items():
+                if block["type"] == "tool_use" and "raw_json" in block:
+                    try:
+                        block["input"] = json.loads(block["raw_json"])
+                    except:
+                        pass
+                    del block["raw_json"]
                     
             if current_block_type is not None:
                 yield f'event: content_block_stop\ndata: {{"type":"content_block_stop","index":{idx}}}\n\n'
