@@ -403,13 +403,12 @@ function ui.pageLines(lines, title)
       ui.setColors(ui.colors.yellow)
       io.write("-- More (" .. pageNum .. "/" .. totalPages .. ") -- press any key --")
       ui.resetColors()
-      -- Wait for actual key press; ignore spurious events
-      while true do
-        local ev = {event.pull("key_down")}
-        if ev[1] == "key_down" then
-          break
-        end
-      end
+      -- Let the terminal settle so the prompt is visible
+      os.sleep(0.1)
+      -- Drain any buffered key events (e.g. Enter from typing the /command)
+      while event.pull(0, "key_down") do end
+      -- Now wait for a fresh key press
+      event.pull("key_down")
       pageNum = pageNum + 1
     end
   end
