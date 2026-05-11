@@ -218,6 +218,34 @@ local function processCommand(input)
     print("")
     return true
 
+  elseif cmd == "models" then
+    local allModels = {
+      {id = "gpt-5.5", label = "GPT-5.5 (default, balanced)"},
+      {id = "gpt-5.5-pro", label = "GPT-5.5 Pro (advanced)"},
+      {id = "gpt-5.4-mini", label = "GPT-5.4 Mini"},
+      {id = "gpt-5.4-nano", label = "GPT-5.4 Nano"},
+      {id = "claude-sonnet-4-6", label = "Claude Sonnet 4.6"},
+      {id = "claude-opus-4-7", label = "Claude Opus 4.7"},
+      {id = "claude-haiku-4-5", label = "Claude Haiku 4.5 (fastest)"},
+      {id = "gemini-3.1-pro", label = "Gemini 3.1 Pro"},
+      {id = "gemini-3-flash", label = "Gemini 3 Flash"},
+      {id = "big-pickle", label = "Big Pickle"},
+      {id = "glm-5.1", label = "GLM-5.1"},
+      {id = "kimi-k2.6", label = "Kimi K2.6"},
+      {id = "minimax-m2.7", label = "MiniMax M2.7"},
+      {id = "qwen3.6-plus", label = "Qwen 3.6 Plus"},
+      {id = "trinity-large-preview-free", label = "Trinity Large Preview (free)"},
+    }
+    local lines = {"Available models:", ""}
+    for _, m in ipairs(allModels) do
+      table.insert(lines, "  " .. m.id)
+      table.insert(lines, "    " .. m.label)
+      table.insert(lines, "")
+    end
+    table.insert(lines, "Usage: /model <alias> | <full-model-id>")
+    ui.pageLines(lines)
+    return true
+
   elseif cmd == "model" then
     local models = {
       -- Claude family
@@ -253,7 +281,7 @@ local function processCommand(input)
       local cfg = config.load()
       ui.printInfo("Current model: " .. cfg.model)
       ui.printInfo("Usage: /model <alias> | <full-model-id>")
-      ui.printInfo("Aliases: sonnet, opus, haiku, gpt, gemini, bigpickle, kimi, etc.")
+      ui.printInfo("Run /models to see all available models.")
     end
     print("")
     return true

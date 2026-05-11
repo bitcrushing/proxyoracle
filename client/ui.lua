@@ -369,34 +369,62 @@ function ui.printAutoEnd(reason)
   print("")
 end
 
+-- Page lines with "-- More --" prompt
+function ui.pageLines(lines, title)
+  local w, h = ui.getSize()
+  local pageSize = math.max(h - 2, 4)
+  local printed = 0
+
+  if title then
+    print(title)
+    printed = 1
+  end
+
+  for _, line in ipairs(lines) do
+    print(line)
+    printed = printed + 1
+    if printed >= pageSize then
+      ui.setColors(ui.colors.yellow)
+      io.write("-- More -- (press any key) --")
+      ui.resetColors()
+      event.pull("key")
+      print("")
+      printed = 0
+    end
+  end
+end
+
 -- Print help information
 function ui.printHelp()
-  print("")
-  ui.printColored("Commands:", ui.colors.cyan)
-  print("  /help         - Show this help message")
-  print("  /clear        - Clear conversation (new session)")
-  print("  /resume       - Resume a saved session")
-  print("  /auto <goal>  - Start autonomous mode")
-  print("  /last         - Re-display last response (paginated)")
-  print("  /history      - Show conversation summary")
-  print("  /cost         - Show token usage and cost estimate")
-  print("  /model <name> - Switch model (sonnet/opus/haiku)")
-  print("  /memory       - Show RAM usage")
-  print("  /yolo         - Toggle auto-allow (skip confirmations)")
-  print("  /setup        - Configure proxy connection")
-  print("  /exit         - Exit")
-  print("")
-  ui.printColored("Tools:", ui.colors.cyan)
-  print("  File: Read, Write, Edit, Run, Glob, Grep, Fetch")
-  print("  Hardware: Component, Inventory, Redstone, ME, Robot, Scan")
-  print("  Some tools require confirmation (use /yolo to skip).")
-  print("")
-  ui.printColored("Tips:", ui.colors.cyan)
-  print("  - Press Ctrl+C to interrupt")
-  print("  - Use arrow keys for input history")
-  print("  - Responses stream in real-time")
-  print("  - /auto runs Zen autonomously toward a goal")
-  print("")
+  local lines = {
+    "Commands:",
+    "  /help         - Show this help message",
+    "  /clear        - Clear conversation (new session)",
+    "  /resume       - Resume a saved session",
+    "  /auto <goal>  - Start autonomous mode",
+    "  /last         - Re-display last response (paginated)",
+    "  /history      - Show conversation summary",
+    "  /cost         - Show token usage and cost estimate",
+    "  /model <name> - Switch model (sonnet/opus/haiku)",
+    "  /models       - List all available models",
+    "  /memory       - Show RAM usage",
+    "  /yolo         - Toggle auto-allow (skip confirmations)",
+    "  /setup        - Configure proxy connection",
+    "  /exit         - Exit",
+    "",
+    "Tools:",
+    "  File: Read, Write, Edit, Run, Glob, Grep, Fetch",
+    "  Hardware: Component, Inventory, Redstone, ME, Robot, Scan",
+    "  Some tools require confirmation (use /yolo to skip).",
+    "",
+    "Tips:",
+    "  - Press Ctrl+C to interrupt",
+    "  - Use arrow keys for input history",
+    "  - Responses stream in real-time",
+    "  - /auto runs Zen autonomously toward a goal",
+    "",
+  }
+  ui.pageLines(lines)
 end
 
 -- Clear screen
