@@ -752,28 +752,59 @@ def session_history(session_id):
     if not session:
         return jsonify({"error": {"type": "not_found", "message": "Session not found"}}), 404
 
-    # Return condensed history: role + text preview for each message
+    full = request.args.get("full", "").lower() == "true"
+
     history = []
     for msg in session["messages"]:
         role = msg.get("role", "?")
         content = msg.get("content", "")
-        preview = ""
 
-        if isinstance(content, str):
-            preview = content[:80]
-        elif isinstance(content, list):
-            parts = []
-            for block in content:
-                if isinstance(block, dict):
-                    if block.get("type") == "text":
-                        parts.append(block.get("text", "")[:80])
-                    elif block.get("type") == "tool_use":
-                        parts.append("[" + block.get("name", "tool") + "]")
-                    elif block.get("type") == "tool_result":
-                        parts.append("[result]")
-            preview = " ".join(parts)[:80]
-
-        history.append({"role": role, "preview": preview})
+        if full:
+            # Return structured content blocks with full text and tool summaries
+            blocks = []
+            if isinstance(content, str):
+                blocks.append({"type": "text", "text": content})
+            elif isinstance(content, list):
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    btype = block.get("type")
+                    if btype == "text":
+                        blocks.append({"type": "text", "text": block.get("text", "")})
+                    elif btype == "tool_use":
+                        blocks.append({
+                            "type": "tool_use",
+                            "name": block.get("name", "tool"),
+                            "input": block.get("input", {}),
+                        })
+                    elif btype == "tool_result":
+                        result_text = str(block.get("content", ""))
+                        is_error = block.get("is_error", False)
+                        lines = result_text.count("\n") + 1
+                        size = len(result_text)
+                        size_str = f"{size / 1024:.1f}KB" if size > 1024 else f"{size}B"
+                        summary = f"Result: {lines} lines, {size_str}"
+                        if is_error:
+                            summary = "Error: " + result_text[:120]
+                        blocks.append({"type": "tool_result", "summary": summary})
+            history.append({"role": role, "blocks": blocks})
+        else:
+            # Return condensed history: role + text preview for each message
+            preview = ""
+            if isinstance(content, str):
+                preview = content[:80]
+            elif isinstance(content, list):
+                parts = []
+                for block in content:
+                    if isinstance(block, dict):
+                        if block.get("type") == "text":
+                            parts.append(block.get("text", "")[:80])
+                        elif block.get("type") == "tool_use":
+                            parts.append("[" + block.get("name", "tool") + "]")
+                        elif block.get("type") == "tool_result":
+                            parts.append("[result]")
+                preview = " ".join(parts)[:80]
+            history.append({"role": role, "preview": preview})
 
     return jsonify({"history": history, "count": len(history)})
 

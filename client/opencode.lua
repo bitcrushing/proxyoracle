@@ -116,16 +116,26 @@ end
 
 -- Get a human-readable description for tool confirmation prompt
 local function getToolDescription(name, input)
-  if name == "Write" then
+  if name == "Read" then
+    return "read " .. tostring(input.file_path or "?")
+  elseif name == "Write" then
     local size = input.content and #input.content or 0
     return "write " .. tostring(input.file_path) .. " (" .. size .. " bytes)"
   elseif name == "Edit" then
     return "edit " .. tostring(input.file_path)
   elseif name == "Run" then
     return tostring(input.command)
+  elseif name == "Glob" then
+    return "glob '" .. tostring(input.pattern or "?") .. "'"
+  elseif name == "Grep" then
+    return "grep '" .. tostring(input.pattern or "?") .. "'"
+  elseif name == "Fetch" then
+    return "fetch " .. tostring(input.url or "?")
   elseif name == "Component" then
     if input.action == "list" then return "list components" end
     return "call " .. tostring(input.address or "?") .. "." .. tostring(input.method or "?")
+  elseif name == "Inventory" then
+    return "inventory side " .. tostring(input.side) .. (input.slot and (" slot " .. input.slot) or "")
   elseif name == "Redstone" then
     return input.action .. " side " .. tostring(input.side) .. (input.value and (" = " .. input.value) or "")
   elseif name == "ME" then
@@ -133,6 +143,8 @@ local function getToolDescription(name, input)
     return "ME " .. tostring(input.action)
   elseif name == "Robot" then
     return tostring(input.action) .. " " .. tostring(input.direction or input.side or "")
+  elseif name == "Scan" then
+    return "scan " .. tostring(input.action) .. (input.x and " at offset" or "")
   end
   return name
 end
@@ -415,6 +427,65 @@ local function processCommand(input)
       end
     end
     print("")
+    return true
+
+  elseif cmd == "scroll" then
+    local cfg = config.load()
+    if not sessionId then
+      print("")
+      ui.printError("No active session. Start a conversation first.")
+      print("")
+      return true
+    end
+
+    local data, err = api.getFullHistory(cfg.proxy_host, cfg.proxy_port, cfg.proxy_token, sessionId)
+    if not data or not data.history then
+      print("")
+      ui.printError(err or "Failed to fetch history")
+      print("")
+      return true
+    end
+
+    if #data.history == 0 then
+      print("")
+      ui.printInfo("No messages in history.")
+      print("")
+      return true
+    end
+
+    -- Build display buffer
+    local screenW = ui.getSize()
+    local buffer = {}
+    for _, msg in ipairs(data.history) do
+      local role = msg.role == "user" and "You" or "Zen"
+      local color = msg.role == "user" and ui.colors.green or ui.colors.cyan
+
+      -- Add colored header
+      table.insert(buffer, {text = role .. ":", color = color})
+
+      local blocks = msg.blocks or {}
+      for _, block in ipairs(blocks) do
+        if block.type == "text" then
+          local text = block.text or ""
+          if text ~= "" then
+            local wrapped = ui.wordWrap(text, screenW - 2)
+            for line in wrapped:gmatch("([^\n]*)") do
+              table.insert(buffer, {text = "  " .. line, color = color})
+            end
+          end
+        elseif block.type == "tool_use" then
+          local desc = getToolDescription(block.name or "tool", block.input or {})
+          table.insert(buffer, {text = "  [Tool: " .. desc .. "]", color = ui.colors.yellow})
+        elseif block.type == "tool_result" then
+          table.insert(buffer, {text = "  [" .. tostring(block.summary or "result") .. "]", color = ui.colors.gray})
+        end
+      end
+
+      -- Blank separator between messages
+      table.insert(buffer, {text = "", color = nil})
+    end
+
+    ui.scrollBuffer(buffer, "Conversation")
     return true
 
   elseif cmd == "memory" or cmd == "mem" then

@@ -452,6 +452,35 @@ function api.getHistory(host, port, token, sessionId)
   return data
 end
 
+-- Fetch full session history from proxy (includes full text + tool summaries)
+function api.getFullHistory(host, port, token, sessionId)
+  local sock, err = createSocket(host, port)
+  if not sock then return nil, err end
+
+  local writeOk, writeErr = sendHttpRequest(sock, "GET", "/session/" .. sessionId .. "/history?full=true", host, token)
+  if not writeOk then
+    sock.close()
+    return nil, writeErr
+  end
+
+  local readLine = createLineReader(sock, 15)
+  local statusLine = readLine()
+  if not statusLine then
+    sock.close()
+    return nil, "No response"
+  end
+
+  local body = readHttpBody(readLine)
+  sock.close()
+
+  local ok, data = pcall(json.decode, body)
+  if not ok or not data then
+    return nil, "Invalid response"
+  end
+
+  return data
+end
+
 -- Fetch a URL via the proxy server (avoids OC HTTPS limitations)
 function api.fetch(host, port, token, url)
   local sock, err = createSocket(host, port)

@@ -414,6 +414,136 @@ function ui.pageLines(lines, title)
   end
 end
 
+-- Scrollable buffer viewer. lines is an array of {text=string, color=number?}.
+-- Supports Up/Down, PgUp/PgDn, Home/End, q to quit.
+-- Starts at the bottom (most recent content).
+function ui.scrollBuffer(lines, title)
+  local w, h = ui.getSize()
+  local viewH = math.max(h - 1, 4)
+  local maxLines = 2000
+  local omitted = 0
+
+  -- Trim from top if too long
+  if #lines > maxLines then
+    omitted = #lines - maxLines
+    local trimmed = {}
+    for i = #lines - maxLines + 1, #lines do
+      table.insert(trimmed, lines[i])
+    end
+    lines = trimmed
+  end
+
+  local totalLines = #lines
+  if totalLines == 0 then
+    print("")
+    ui.printInfo("No content to display.")
+    print("")
+    return
+  end
+
+  -- Flatten to display strings (store color separately for rendering)
+  local displayLines = {}
+  for _, entry in ipairs(lines) do
+    table.insert(displayLines, entry)
+  end
+
+  -- Start at bottom
+  local topIdx = math.max(1, totalLines - viewH + 1)
+
+  -- Drain buffered key events (e.g. Enter from typing /scroll)
+  while event.pull(0, "key_down") do end
+
+  while true do
+    term.clear()
+    local y = 1
+
+    -- Title (optional)
+    if title then
+      ui.setColors(ui.colors.cyan)
+      term.setCursor(1, y)
+      print(title)
+      ui.resetColors()
+      y = y + 1
+    end
+
+    -- Render viewport
+    local rendered = 0
+    for i = topIdx, totalLines do
+      if y > viewH then break end
+      term.setCursor(1, y)
+      local entry = displayLines[i]
+      if entry and entry.text then
+        local color = entry.color
+        if color then
+          ui.setColors(color)
+          -- Truncate to viewport width to avoid wrapping artifacts
+          local text = entry.text
+          if #text > w then
+            text = text:sub(1, w)
+          end
+          io.write(text)
+          ui.resetColors()
+        else
+          local text = entry.text
+          if #text > w then
+            text = text:sub(1, w)
+          end
+          io.write(text)
+        end
+      end
+      y = y + 1
+      rendered = rendered + 1
+    end
+
+    -- Status bar at bottom
+    local bottom = viewH + 1
+    if bottom > h then bottom = h end
+    term.setCursor(1, bottom)
+    ui.setColors(ui.colors.gray)
+    local status = "Lines " .. topIdx .. "-" .. (topIdx + rendered - 1) .. "/" .. totalLines
+    if omitted > 0 then
+      status = "[... " .. omitted .. " lines omitted ...] " .. status
+    end
+    local keys = "  [Up/Down/PgUp/PgDn/Home/End/q]"
+    local bar = status .. keys
+    if #bar > w then
+      bar = bar:sub(1, w)
+    end
+    io.write(bar)
+    ui.resetColors()
+
+    -- Wait for key
+    local _, _, char, code = event.pull("key_down")
+
+    if code == 200 then
+      -- Up arrow
+      topIdx = math.max(1, topIdx - 1)
+    elseif code == 208 then
+      -- Down arrow
+      topIdx = math.min(totalLines - viewH + 1, topIdx + 1)
+      if topIdx < 1 then topIdx = 1 end
+    elseif code == 201 then
+      -- Page Up
+      topIdx = math.max(1, topIdx - viewH + 1)
+    elseif code == 209 then
+      -- Page Down
+      topIdx = math.min(totalLines - viewH + 1, topIdx + viewH - 1)
+      if topIdx < 1 then topIdx = 1 end
+    elseif code == 199 then
+      -- Home
+      topIdx = 1
+    elseif code == 207 then
+      -- End
+      topIdx = math.max(1, totalLines - viewH + 1)
+    elseif char == 113 or char == 81 then
+      -- q / Q
+      break
+    end
+  end
+
+  term.clear()
+end
+
 -- Print help information
 function ui.printHelp()
   local lines = {
@@ -424,6 +554,7 @@ function ui.printHelp()
     "  /auto <goal>  - Start autonomous mode",
     "  /last         - Re-display last response (paginated)",
     "  /history      - Show conversation summary",
+    "  /scroll       - Browse full conversation (Up/Down/PgUp/PgDn/q)",
     "  /cost         - Show token usage and cost estimate",
     "  /model <name> - Switch model (sonnet/opus/haiku)",
     "  /models       - List all available models",
@@ -442,6 +573,7 @@ function ui.printHelp()
     "  - Use arrow keys for input history",
     "  - Responses stream in real-time",
     "  - /auto runs Zen autonomously toward a goal",
+    "  - /scroll browses the entire conversation with arrow keys",
     "",
   }
   ui.pageLines(lines)
