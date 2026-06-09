@@ -7,7 +7,7 @@ A Zen AI proxy server + thin OpenComputers client. Offloads TLS, conversation st
 ```
 OC Computer (1MB RAM)              Proxy Server (any machine)
 ┌─────────────────┐  plain HTTP   ┌──────────────────────┐   HTTPS
-│ Thin Lua Client  │ ──────────→  │  Python Proxy Server  │ ────────→ api.anthropic.com
+│ Thin Lua Client  │ ──────────→  │  Python Proxy Server  │ ────────→ OpenCode Zen API
 │ - Tool execution │ ←──────────  │  - Conversation store │ ←────────
 │ - UI / input     │  SSE stream  │  - TLS termination    │
 │ - Agentic loop   │              │  - Thinking blocks    │
